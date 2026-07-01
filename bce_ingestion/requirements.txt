@@ -1,0 +1,29 @@
+# --- Dépendances du pipeline d'ingestion BCE (couche Bronze / medallion) ---
+# Épinglage volontairement souple (compatible cluster + tests locaux).
+
+# Base de données des entreprises + State DB d'idempotence
+pymongo>=4.6,<5
+
+# Manipulation / parsing des CSV (dépôts NBB/CBSO, KBO Open Data)
+pandas>=2.0,<3
+
+# Téléchargements HTTP (NBB, notaire.be, eJustice)
+requests>=2.31,<3
+
+# Parsing HTML (pages eJustice / listes de dépôts)
+beautifulsoup4>=4.12,<5
+
+# Renouvellement des cookies F5 headless de notaire.be
+# IMPORTANT : après l'install pip, exécuter aussi :
+#     playwright install chromium
+playwright>=1.40,<2
+
+# Écriture HDFS (backend "pyarrow" recommandé sur le cluster)
+pyarrow>=14,<21
+
+# Ordonnancement des DAGs
+apache-airflow>=2.7,<3
+
+# --- Tests uniquement (facultatif sur le cluster) ---
+# mongomock>=4.1   # base MongoDB en mémoire pour les tests hors cluster
+# pytest>=7.4

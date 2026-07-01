@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+notaire_cookies.json
+tmp/
+*.log
+.DS_Store
