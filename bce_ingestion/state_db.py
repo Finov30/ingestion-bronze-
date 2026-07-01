@@ -139,3 +139,74 @@ def stats(db) -> dict:
         status = row["_id"].get("status")
         out.setdefault(source, {})[status] = row["n"]
     return out
+
+
+# ===========================================================================
+# State DB au niveau ENTREPRISE (Jour 2) — collection config.SCRAPE_STATE_COLLECTION
+# ---------------------------------------------------------------------------
+# Ici la granularité n'est plus le fichier mais l'ENTREPRISE : un document par
+# BCE (le `_id` EST le bce10), qui trace l'avancement du scraping des dépôts NBB
+# pour cette entreprise. Statuts (par énoncé) :
+#   'pending'      -> à traiter (chargée depuis le ciblage hôtellerie)
+#   'in_progress'  -> scraping en cours (worker actif)
+#   'done'         -> tous les dépôts de l'entreprise ont été ingérés
+#
+# Ces fonctions sont INDÉPENDANTES des primitives par-fichier ci-dessus : elles
+# vivent dans une autre collection et n'en cassent aucune.
+# ===========================================================================
+def _scrape_coll(db):
+    return db[config.SCRAPE_STATE_COLLECTION]
+
+
+def ensure_scrape_indexes(db) -> None:
+    """Crée l'index de balayage par statut (reprise/stats du scraping)."""
+    _scrape_coll(db).create_index([("status", 1)], name="ix_scrape_status")
+
+
+def set_company_status(db, bce: str, status: str, **fields) -> None:
+    """Upsert l'état de scraping d'une entreprise (idempotent).
+
+    Document : {_id: bce, status, updated_at, created_at, **fields}. `created_at`
+    est posé uniquement à l'insertion ($setOnInsert) ; `**fields` (ex.
+    filings_count) est écrit à chaque appel.
+    """
+    now = _now()
+    set_fields = {"status": status, "updated_at": now}
+    set_fields.update(fields)
+    _scrape_coll(db).update_one(
+        {"_id": bce},
+        {
+            "$setOnInsert": {"created_at": now},
+            "$set": set_fields,
+        },
+        upsert=True,
+    )
+
+
+def get_company_status(db, bce: str) -> str | None:
+    """Renvoie le statut de scraping d'une entreprise, ou None si inconnue."""
+    doc = _scrape_coll(db).find_one({"_id": bce}, {"status": 1})
+    return doc.get("status") if doc else None
+
+
+def pending_companies(db, limit: int | None = None) -> list:
+    """Liste des BCE à scraper : statut 'pending' OU 'in_progress' (repris).
+
+    Un 'in_progress' correspond à un worker interrompu : on le remet dans la file
+    de travail. `limit` borne le nombre de BCE renvoyés (batching des DAG).
+    """
+    cur = _scrape_coll(db).find(
+        {"status": {"$in": ["pending", "in_progress"]}}, {"_id": 1}
+    )
+    if limit is not None:
+        cur = cur.limit(limit)
+    return [doc["_id"] for doc in cur]
+
+
+def scrape_stats(db) -> dict:
+    """Comptes par statut, ex. {'pending': 12, 'in_progress': 1, 'done': 187}."""
+    out = {"pending": 0, "in_progress": 0, "done": 0}
+    pipeline = [{"$group": {"_id": "$status", "n": {"$sum": 1}}}]
+    for row in _scrape_coll(db).aggregate(pipeline):
+        out[row["_id"]] = row["n"]
+    return out

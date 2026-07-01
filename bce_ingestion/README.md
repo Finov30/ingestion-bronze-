@@ -276,3 +276,20 @@ bce_ingestion/
   module — imports paresseux à l'intérieur des fonctions).
 - HDFS : `HDFS_BACKEND=local` écrit dans un dossier local.
 - Toute la logique DB accepte un `db` **injecté**, testable avec `mongomock`.
+
+---
+
+## 9. Jour 2 — couche Silver + ciblage Hôtellerie & scraping NBB
+
+Le présent README couvre la **couche Bronze** (Jour 1). Le **Jour 2** ajoute,
+**sans modifier le Bronze**, une couche **Silver** (`enterprise_silver` : dates
+ISO, dédup activités, adresse `REGO`, dénomination officielle, libellés FR
+décodés), un **ciblage sectoriel hôtellerie** (9 codes NACE de la division 55) et
+un **scraping NBB idempotent au niveau entreprise** (`scrape_state` +
+`file_state`) déposant les CSV comptables `>= 2021` dans le Bronze HDFS
+(`{bce}/nbb/{year}/{ref}.csv`).
+
+Nouveaux modules : `build_bronze.py`, `codes.py`, `silver.py`, `hotel.py`,
+`scrape_nbb.py`, `dags/bce_silver_dag.py`, `dags/bce_hotel_nbb_dag.py`.
+
+Détails complets : voir [`README_JOUR2.md`](README_JOUR2.md).
