@@ -6,3 +6,5 @@ notaire_cookies.json
 tmp/
 *.log
 .DS_Store
+node_modules/
+dist/

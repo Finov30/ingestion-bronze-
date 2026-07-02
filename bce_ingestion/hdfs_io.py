@@ -85,6 +85,70 @@ class HdfsIO:
         with open(local_path, "rb") as f:
             return self.put_bytes(f.read(), rel)
 
+    # ---- lecture (nécessaire au recalcul Gold depuis le Bronze) -----------
+    def read_bytes(self, rel: str) -> bytes:
+        if self.backend == "pyarrow":
+            with self._fs.open_input_stream(self._pyarrow_path(rel)) as f:
+                return f.read()
+        if self.backend == "cli":
+            return subprocess.run(
+                ["hdfs", "dfs", "-cat", self.full_path(rel)],
+                capture_output=True, check=True,
+            ).stdout
+        with open(self.full_path(rel), "rb") as f:
+            return f.read()
+
+    def read_text(self, rel: str, encoding: str = "utf-8") -> str:
+        return self.read_bytes(rel).decode(encoding, "replace")
+
+    def list_files(self, rel_dir: str = "", suffix: str | None = None) -> list:
+        """Liste (récursive) les chemins RELATIFS des fichiers sous `rel_dir`.
+
+        Les chemins renvoyés sont relatifs à la racine Bronze — donc directement
+        réutilisables avec :meth:`read_text` / :meth:`exists`.
+        """
+        rel_dir = rel_dir.strip("/")
+        if self.backend == "pyarrow":
+            from pyarrow.fs import FileSelector, FileType
+            base = self._pyarrow_path(rel_dir).rstrip("/")
+            root = self._base_path.rstrip("/")
+            try:
+                infos = self._fs.get_file_info(FileSelector(base, recursive=True))
+            except Exception:
+                return []
+            out = []
+            for i in infos:
+                if i.type == FileType.File:
+                    rel = i.path[len(root):].lstrip("/") if i.path.startswith(root) else i.path
+                    if suffix is None or rel.endswith(suffix):
+                        out.append(rel)
+            return sorted(out)
+        if self.backend == "cli":
+            full = self.full_path(rel_dir)
+            res = subprocess.run(["hdfs", "dfs", "-ls", "-R", full],
+                                 capture_output=True, text=True)
+            base = self.base.rstrip("/")
+            out = []
+            for line in res.stdout.splitlines():
+                if line.startswith("d") or not line.strip():
+                    continue  # répertoire
+                path = line.split()[-1]
+                rel = path[len(base):].lstrip("/") if path.startswith(base) else path
+                if suffix is None or rel.endswith(suffix):
+                    out.append(rel)
+            return sorted(out)
+        # local
+        root = self.base.rstrip("/")
+        start = os.path.join(root, rel_dir)
+        out = []
+        for dirpath, _dirs, files in os.walk(start):
+            for name in files:
+                full = os.path.join(dirpath, name)
+                rel = os.path.relpath(full, root)
+                if suffix is None or rel.endswith(suffix):
+                    out.append(rel)
+        return sorted(out)
+
 
 def get_hdfs(backend: str | None = None, base: str | None = None) -> HdfsIO:
     return HdfsIO(backend=backend, base=base)

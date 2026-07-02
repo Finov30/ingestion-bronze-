@@ -399,17 +399,18 @@ def reset_session():
 # ---------------------------------------------------------------------------
 # API publique
 # ---------------------------------------------------------------------------
-def get_statutes(bce_num10: str, session: _NotaireSession | None = None) -> list[dict]:
-    """Renvoie les statuts au statut ``DONE`` pour une entreprise.
+def iter_statutes(bce_num10: str, session: _NotaireSession | None = None):
+    """Générateur : ``yield`` chaque statut au statut ``DONE`` AU FIL de la
+    pagination de l'API JSON (pour un streaming SSE réellement progressif —
+    le backend émet chaque document dès qu'il arrive, sans attendre la fin).
 
-    ``bce_num10`` : numéro BCE ; normalisé en 10 chiffres avec zéro de tête.
-    Utilise la méthode navigateur-headless + polling pour franchir le mur F5,
-    puis pagine l'API JSON.
+    ``bce_num10`` : numéro BCE normalisé en 10 chiffres avec zéro de tête.
+    Utilise la méthode navigateur-headless + polling pour franchir le mur F5.
     """
     num10 = _num10(bce_num10)
     sess = session or get_session()
 
-    all_statutes: list[dict] = []
+    seen = 0
     offset = 0
     while True:
         status, ctype, _body, data = sess.api_json(
@@ -426,19 +427,30 @@ def get_statutes(bce_num10: str, session: _NotaireSession | None = None) -> list
 
         batch = data.get("statutes", []) or []
         total = data.get("totalItems", 0) or 0
-        all_statutes.extend(batch)
+        for statut in batch:
+            if statut.get("documentStatus") == "DONE":
+                yield statut          # émis immédiatement (streaming)
+        seen += len(batch)
         log.info(
             "[%s] offset=%d — %d statuts (total: %d)",
             num10, offset, len(batch), total,
         )
 
-        if not batch or len(all_statutes) >= total:
+        if not batch or seen >= total:
             break
         offset += PAGE_SIZE
         time.sleep(config.NOTAIRE_DELAY)
 
-    done = [s for s in all_statutes if s.get("documentStatus") == "DONE"]
-    log.info("[%s] -> %d DONE", num10, len(done))
+
+def get_statutes(bce_num10: str, session: _NotaireSession | None = None) -> list[dict]:
+    """Renvoie la LISTE complète des statuts ``DONE`` d'une entreprise.
+
+    Consomme :func:`iter_statutes` (même logique de pagination / franchissement
+    F5) et matérialise le résultat. Comportement identique aux versions
+    précédentes ; le générateur sous-jacent permet en plus le streaming SSE.
+    """
+    done = list(iter_statutes(bce_num10, session=session))
+    log.info("[%s] -> %d DONE", _num10(bce_num10), len(done))
     return done
 
 
