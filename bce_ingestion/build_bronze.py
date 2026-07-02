@@ -1,8 +1,9 @@
 """Construction de la couche Bronze « riche » (collection ``enterprise_finale``).
 
 JOUR 2 — medallion. On assemble, par entreprise, les données KBO Open Data en
-un unique document imbriqué (entreprise + dénominations + adresses + activités),
-clé primaire ``_id = bce10`` (numéro BCE à 10 chiffres, ex. '0203430576').
+un unique document imbriqué (entreprise + dénominations + adresses + activités
++ contacts + établissements + succursales), clé primaire ``_id = bce10``
+(numéro BCE à 10 chiffres, ex. '0203430576').
 
 Schéma document :
   {
@@ -14,11 +15,27 @@ Schéma document :
     addresses     : [{TypeOfAddress, Zipcode, MunicipalityFR, StreetFR,
                       HouseNumber, Box, CountryFR}],
     activities    : [{ActivityGroup, NaceVersion, NaceCode, Classification}],
+    contacts      : [{EntityContact, ContactType, Value}],
+    establishments: [{EstablishmentNumber, StartDate}],
+    branches      : [{Id, StartDate}],
   }
 
-Les fichiers KBO référencent l'entreprise par ``EntityNumber`` (forme pointée,
-ex. '0203.430.576'), identique à ``EnterpriseNumber`` du fichier enterprise. La
-jointure se fait donc sur cette chaîne pointée (normalisée en bce10 pour la clé).
+Clés de jointure — deux familles distinctes dans le KBO Open Data :
+
+* ``denomination`` / ``address`` / ``activity`` / ``contact`` référencent
+  l'entité par ``EntityNumber`` (forme pointée, ex. '0203.430.576'), identique
+  à ``EnterpriseNumber`` du fichier enterprise. On joint donc sur cette chaîne
+  pointée (normalisée en bce10 pour la clé).
+* ``establishment`` / ``branch`` sont des entités qui ont LEUR PROPRE numéro
+  (``EstablishmentNumber`` / ``Id``) et référencent l'entreprise parente par
+  la colonne ``EnterpriseNumber``. On joint donc sur ``EnterpriseNumber`` et on
+  imbrique le numéro propre de l'entité comme sous-document.
+
+``contact.csv`` mélange contacts d'entreprise et d'établissement (via
+``EntityContact`` = 'ENT'/'EST') ; on rattache ici à l'entreprise toutes les
+lignes dont ``EntityNumber`` == bce10 de l'entreprise. Les fichiers ``contact``,
+``establishment`` et ``branch`` sont optionnels : s'ils manquent du dump, la
+construction se poursuit avec des tableaux vides plutôt que d'échouer.
 
 pymongo est importé *paresseusement* dans les fonctions (pile pyOpenSSL locale
 cassée) ; toute la logique accepte un ``db`` injecté (pymongo réel ou mongomock).
@@ -88,23 +105,40 @@ _DENOM_COLS = ["Language", "TypeOfDenomination", "Denomination"]
 _ADDR_COLS  = ["TypeOfAddress", "Zipcode", "MunicipalityFR", "StreetFR",
                "HouseNumber", "Box", "CountryFR"]
 _ACT_COLS   = ["ActivityGroup", "NaceVersion", "NaceCode", "Classification"]
+_CONTACT_COLS = ["EntityContact", "ContactType", "Value"]
+# establishment / branch : le numéro propre de l'entité est conservé, le lien
+# vers l'entreprise (colonne de clé) n'est pas dupliqué dans le sous-document.
+_ESTAB_COLS  = ["EstablishmentNumber", "StartDate"]
+_BRANCH_COLS = ["Id", "StartDate"]
 
 
 def _collect_children(csv_path: str, cols: list[str], wanted: set[str] | None,
-                      chunksize: int) -> dict[str, list[dict]]:
-    """Regroupe les lignes enfant par ``bce10``.
+                      chunksize: int, key_col: str = "EntityNumber",
+                      optional: bool = False) -> dict[str, list[dict]]:
+    """Regroupe les lignes enfant par ``bce10`` de l'entreprise.
 
     Ne conserve en mémoire que les entreprises de ``wanted`` (ou toutes si
     ``wanted is None``). Chaque ligne est projetée sur ``cols`` (valeurs
     nettoyées : NaN/vide -> None).
+
+    Args:
+        key_col  : colonne portant le numéro d'entreprise à normaliser en bce10.
+                   ``EntityNumber`` pour denomination/address/activity/contact ;
+                   ``EnterpriseNumber`` pour establishment/branch (dont la clé
+                   propre — EstablishmentNumber/Id — figure parmi ``cols``).
+        optional : si True, un fichier absent renvoie ``{}`` au lieu de lever
+                   ``FileNotFoundError`` (fichiers contact/establishment/branch
+                   pas toujours présents dans le dump KBO).
     """
+    if optional and not os.path.exists(csv_path):
+        return {}
     out: dict[str, list[dict]] = {}
     for chunk in _reader(csv_path, chunksize):
         # Sélection colonnaire (certaines colonnes peuvent manquer selon le dump).
         present = [c for c in cols if c in chunk.columns]
         for row in chunk.itertuples(index=False):
             d = row._asdict()
-            bce = bce10(d.get("EntityNumber"))
+            bce = bce10(d.get(key_col))
             if not bce or (wanted is not None and bce not in wanted):
                 continue
             out.setdefault(bce, []).append(
@@ -146,13 +180,17 @@ def build_enterprise_finale(db, bces=None, kbo_dir: str | None = None,
 
     Returns:
         {'companies', 'inserted', 'matched', 'modified',
-         'denominations', 'addresses', 'activities'}
+         'denominations', 'addresses', 'activities',
+         'contacts', 'establishments', 'branches'}
     """
     kbo_dir = kbo_dir or _default_kbo_dir()
-    enterprise_csv   = os.path.join(kbo_dir, "enterprise.csv")
-    denomination_csv = os.path.join(kbo_dir, "denomination.csv")
-    address_csv      = os.path.join(kbo_dir, "address.csv")
-    activity_csv     = os.path.join(kbo_dir, "activity.csv")
+    enterprise_csv    = os.path.join(kbo_dir, "enterprise.csv")
+    denomination_csv  = os.path.join(kbo_dir, "denomination.csv")
+    address_csv       = os.path.join(kbo_dir, "address.csv")
+    activity_csv      = os.path.join(kbo_dir, "activity.csv")
+    contact_csv       = os.path.join(kbo_dir, "contact.csv")
+    establishment_csv = os.path.join(kbo_dir, "establishment.csv")
+    branch_csv        = os.path.join(kbo_dir, "branch.csv")
 
     coll = db[config.FINALE_COLLECTION]
 
@@ -161,20 +199,32 @@ def build_enterprise_finale(db, bces=None, kbo_dir: str | None = None,
         wanted: set[str] | None = {b for b in (bce10(x) for x in bces) if b}
         if not wanted:
             return {"companies": 0, "inserted": 0, "matched": 0, "modified": 0,
-                    "denominations": 0, "addresses": 0, "activities": 0}
+                    "denominations": 0, "addresses": 0, "activities": 0,
+                    "contacts": 0, "establishments": 0, "branches": 0}
     elif limit is not None:
         wanted = _select_wanted(enterprise_csv, limit, chunksize)
     else:
         wanted = None  # toutes
 
     # 2) Collecter les enfants pour l'ensemble ciblé ---------------------------
-    denoms = _collect_children(denomination_csv, _DENOM_COLS, wanted, chunksize)
-    addrs  = _collect_children(address_csv,      _ADDR_COLS,  wanted, chunksize)
-    acts   = _collect_children(activity_csv,     _ACT_COLS,   wanted, chunksize)
+    #    Jointure sur EntityNumber (dénomination/adresse/activité/contact)…
+    denoms   = _collect_children(denomination_csv, _DENOM_COLS,   wanted, chunksize)
+    addrs    = _collect_children(address_csv,      _ADDR_COLS,    wanted, chunksize)
+    acts     = _collect_children(activity_csv,     _ACT_COLS,     wanted, chunksize)
+    contacts = _collect_children(contact_csv,      _CONTACT_COLS, wanted, chunksize,
+                                 optional=True)
+    #    …et sur EnterpriseNumber (établissement/succursale : entités à clé propre).
+    estabs   = _collect_children(establishment_csv, _ESTAB_COLS,  wanted, chunksize,
+                                 key_col="EnterpriseNumber", optional=True)
+    branches = _collect_children(branch_csv,        _BRANCH_COLS, wanted, chunksize,
+                                 key_col="EnterpriseNumber", optional=True)
 
-    n_denoms = sum(len(v) for v in denoms.values())
-    n_addrs  = sum(len(v) for v in addrs.values())
-    n_acts   = sum(len(v) for v in acts.values())
+    n_denoms   = sum(len(v) for v in denoms.values())
+    n_addrs    = sum(len(v) for v in addrs.values())
+    n_acts     = sum(len(v) for v in acts.values())
+    n_contacts = sum(len(v) for v in contacts.values())
+    n_estabs   = sum(len(v) for v in estabs.values())
+    n_branches = sum(len(v) for v in branches.values())
 
     # 3) Streamer enterprise.csv, assembler et upserter ------------------------
     companies = 0
@@ -210,6 +260,9 @@ def build_enterprise_finale(db, bces=None, kbo_dir: str | None = None,
                 "denominations":      denoms.get(bce, []),
                 "addresses":          addrs.get(bce, []),
                 "activities":         acts.get(bce, []),
+                "contacts":           contacts.get(bce, []),
+                "establishments":     estabs.get(bce, []),
+                "branches":           branches.get(bce, []),
             }
             ops.append(({"_id": bce}, {"$set": doc}))
             companies += 1
@@ -225,13 +278,17 @@ def build_enterprise_finale(db, bces=None, kbo_dir: str | None = None,
         "denominations": n_denoms,
         "addresses": n_addrs,
         "activities": n_acts,
+        "contacts": n_contacts,
+        "establishments": n_estabs,
+        "branches": n_branches,
     }
 
 
 def _main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Construit la collection Bronze riche 'enterprise_finale' "
-                    "depuis les CSV KBO (enterprise + denomination + address + activity).")
+                    "depuis les CSV KBO (enterprise + denomination + address + "
+                    "activity + contact + establishment + branch).")
     parser.add_argument("--limit", type=int, default=None,
                         help="Nombre max d'entreprises (tests).")
     parser.add_argument("--bces", default=None,

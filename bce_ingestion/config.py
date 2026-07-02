@@ -39,6 +39,9 @@ KBO_ENTERPRISE_CSV   = os.environ.get("BCE_KBO_ENTERPRISE_CSV",   "/data/kbo/ent
 KBO_DENOMINATION_CSV = os.environ.get("BCE_KBO_DENOMINATION_CSV", "/data/kbo/denomination.csv")
 KBO_ADDRESS_CSV      = os.environ.get("BCE_KBO_ADDRESS_CSV",      "/data/kbo/address.csv")
 KBO_ACTIVITY_CSV     = os.environ.get("BCE_KBO_ACTIVITY_CSV",     "/data/kbo/activity.csv")
+KBO_CONTACT_CSV      = os.environ.get("BCE_KBO_CONTACT_CSV",      "/data/kbo/contact.csv")
+KBO_ESTABLISHMENT_CSV = os.environ.get("BCE_KBO_ESTABLISHMENT_CSV", "/data/kbo/establishment.csv")
+KBO_BRANCH_CSV       = os.environ.get("BCE_KBO_BRANCH_CSV",       "/data/kbo/branch.csv")
 KBO_CODE_CSV         = os.environ.get("BCE_KBO_CODE_CSV",         "/data/kbo/code.csv")
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@
 > un **scraping NBB idempotent** au niveau entreprise.
 
 ```
-KBO Open Data (5 CSV)                         consult.cbso.nbb.be (API)
+KBO Open Data (7 CSV + code)                  consult.cbso.nbb.be (API)
         │                                              ▲
         │ build_bronze                                 │ scrape_nbb (>= 2021)
         ▼                                              │
@@ -29,7 +29,7 @@ La medallion sépare strictement les responsabilités :
 
 | Couche | Collection Mongo | Contenu | Mutabilité |
 |--------|------------------|---------|------------|
-| **Bronze (riche)** | `enterprise_finale` (`config.FINALE_COLLECTION`) | Document par entreprise, **fidèle au KBO Open Data** : entreprise + dénominations / adresses / activités **imbriquées brutes** (toutes langues, toutes versions NACE, tous types d'adresse). On archive la donnée telle que servie, sans jugement. | **Intangible.** Jamais réécrit par Silver. Sert de source rejouable. |
+| **Bronze (riche)** | `enterprise_finale` (`config.FINALE_COLLECTION`) | Document par entreprise, **fidèle au KBO Open Data** : entreprise + dénominations / adresses / activités / contacts / établissements / succursales **imbriqués bruts** (toutes langues, toutes versions NACE, tous types d'adresse). On archive la donnée telle que servie, sans jugement. | **Intangible.** Jamais réécrit par Silver. Sert de source rejouable. |
 | **Silver** | `enterprise_silver` (`config.SILVER_COLLECTION`) | Copie **nettoyée, dédupliquée et enrichie** (labels FR décodés) d'`enterprise_finale`. C'est la couche « prête à requêter » sur laquelle s'appuie le ciblage sectoriel. | **Reconstructible** à tout moment depuis `enterprise_finale` (aucune information n'est perdue si on la régénère). |
 
 Principe clé : **Bronze reste intact.** `build_silver` **lit** `enterprise_finale`
@@ -279,7 +279,7 @@ Cycle de vie côté entreprise :
 
 | Fichier | Rôle |
 |---------|------|
-| `build_bronze.py` | Construit le **Bronze riche** `enterprise_finale` depuis les 5 CSV KBO (entreprise + dénominations/adresses/activités **imbriquées brutes**). Lecture en flux `dtype=str` (activity.csv = 1,5 Go → filtré, jamais chargé en entier). Upsert idempotent par `_id` = BCE 10 chiffres. |
+| `build_bronze.py` | Construit le **Bronze riche** `enterprise_finale` depuis les 7 CSV KBO (entreprise + dénominations/adresses/activités/contacts **joints sur `EntityNumber`**, + établissements/succursales **joints sur `EnterpriseNumber`**, **imbriqués bruts**). `contact`/`establishment`/`branch` sont optionnels (tableaux vides si absents du dump). Lecture en flux `dtype=str` (activity.csv = 1,5 Go → filtré, jamais chargé en entier). Upsert idempotent par `_id` = BCE 10 chiffres. |
 | `codes.py` | Charge `code.csv` en index `(Category, Code) → libellé FR` ; expose `load_codes(path)`, `decode(category, code)`, et les helpers de décodage `status` / `juridical_form` / `type` / `nace` utilisés par Silver. |
 | `silver.py` | Applique les **5 transformations** `enterprise_finale → enterprise_silver` (dates ISO, dédup activités, adresse REGO, dénomination 001 FR>NL, décodage FR). `build_silver(db, codes)`. |
 | `hotel.py` | Ciblage hôtellerie : `HOTEL_NACE_CODES` (9 codes), `EXCLUDED_JURIDICAL_FORMS`, `select_hotels(db)` → liste des BCE ciblés (`status=AC`, `type=2`, activité `MAIN` dans les 9 codes, forme non exclue). |
