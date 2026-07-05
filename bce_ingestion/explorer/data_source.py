@@ -1,22 +1,22 @@
-"""Source de données de l'explorateur — MongoDB réel OU jeu représentatif.
+"""Source de données de l'explorateur — MongoDB RÉEL uniquement.
 
-`get_source()` tente une connexion MongoDB courte ; si la base répond ET
-contient des entreprises, on renvoie un `MongoSource`, sinon un `MockSource`
-adossé à `sample_data`. Les deux exposent la même interface :
+`get_source()` ouvre une connexion MongoDB et renvoie toujours un `MongoSource`.
+Il n'existe PLUS de repli synthétique : si la base est injoignable, on lève une
+erreur explicite ; si elle est joignable mais vide, on renvoie des résultats
+vides (total 0) — jamais de fausses données.
 
-    .mode                      -> "mongo" | "demo"
-    .search(q, sector, limit)  -> list[dict]  (fiches allégées)
-    .get_company(bce)          -> dict | None (fiche complète + documents)
-    .stats()                   -> dict (compteurs pour l'en-tête)
-
-L'app web ne dépend donc jamais directement de MongoDB.
+Interface exposée :
+    .mode                              -> "mongo"
+    .search(q, sector, limit, offset)  -> {"total": int, "results": list[dict]}
+    .get_company(bce)                  -> dict | None (fiche complète + documents)
+    .stats()                           -> dict (compteurs pour l'en-tête)
 """
 from __future__ import annotations
 
 import os
 import re
 
-from . import sample_data
+from . import labels
 
 # Config alignée sur bce_ingestion/config.py (surchargeable par env BCE_*).
 MONGO_URI = os.environ.get("BCE_MONGO_URI", "mongodb://localhost:27017")
@@ -89,44 +89,6 @@ def _lite(company: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Source démo (jeu représentatif déterministe)
-# ---------------------------------------------------------------------------
-class MockSource:
-    mode = "demo"
-
-    def __init__(self) -> None:
-        self._data = sample_data.dataset()
-
-    def search(self, q: str, sector: str = "all", limit: int = 40) -> list[dict]:
-        q = (q or "").strip()
-        q_digits = _DIGITS.sub("", q)
-        q_lower = q.lower()
-        out: list[dict] = []
-        for c in self._data.values():
-            if sector == "hotel" and not c["is_hospitality"]:
-                continue
-            if q:
-                by_bce = q_digits and q_digits in c["bce"]
-                by_name = q_lower in c["denomination"].lower()
-                if not (by_bce or by_name):
-                    continue
-            out.append(_lite(c))
-        out.sort(key=lambda c: c["denomination"])
-        return out[:limit]
-
-    def get_company(self, bce: str) -> dict | None:
-        return self._data.get(normalize_bce(bce))
-
-    def stats(self) -> dict:
-        vals = self._data.values()
-        return {
-            "companies": len(self._data),
-            "hotels": sum(1 for c in vals if c["is_hospitality"]),
-            "documents": sum(c["doc_counts"]["total"] for c in vals),
-        }
-
-
-# ---------------------------------------------------------------------------
 # Source MongoDB réelle
 # ---------------------------------------------------------------------------
 class MongoSource:
@@ -143,7 +105,13 @@ class MongoSource:
     def _map_company(doc: dict) -> dict:
         bce = str(doc.get("_id") or doc.get("bce") or "").zfill(10)
         activities = doc.get("activities") or []
-        main = next((a for a in activities if a.get("Classification") == "MAIN"), None)
+        # Une entreprise peut avoir plusieurs activités MAIN (versions NACE
+        # différentes). Dans l'explorateur hôtelier, on affiche en priorité
+        # l'activité MAIN d'hébergement (NACE ^55) si elle existe, sinon la 1re.
+        mains = [a for a in activities if a.get("Classification") == "MAIN"]
+        main = (next((a for a in mains
+                      if str(a.get("NaceCode", "")).startswith("55")), None)
+                or (mains[0] if mains else None))
         nace_code = (main or {}).get("NaceCode", doc.get("nace_code", "")) or ""
         addr = doc.get("address") or doc.get("seat") or {}
         status = doc.get("status") or doc.get("Status") or ""
@@ -163,16 +131,16 @@ class MongoSource:
                   or _region_from_zip(zipcode))
         return {
             "bce": bce,
-            "bce_formatted": sample_data.format_bce(bce),
+            "bce_formatted": labels.format_bce(bce),
             "denomination": denomination,
             "status": status,
-            "status_label": sample_data.STATUS_LABELS.get(status, status or "—"),
+            "status_label": labels.STATUS_LABELS.get(status, status or "—"),
             "type": doc.get("type") or doc.get("TypeOfEnterprise", ""),
             "juridical_form": form,
-            "form_label": sample_data.FORM_LABELS.get(form, form or "—"),
+            "form_label": labels.FORM_LABELS.get(form, form or "—"),
             "nace_code": nace_code,
-            "nace_label": (sample_data.HOTEL_NACE.get(nace_code)
-                           or sample_data.OTHER_NACE.get(nace_code)
+            "nace_label": (labels.HOTEL_NACE.get(nace_code)
+                           or labels.OTHER_NACE.get(nace_code)
                            or doc.get("nace_label", "")),
             "is_hospitality": bool(doc.get("is_hospitality",
                                    str(nace_code).startswith("55"))),
@@ -183,7 +151,7 @@ class MongoSource:
 
     def _doc_counts_for(self, bces: list[str]) -> dict:
         """Compteurs de documents par entreprise en UNE agrégation (évite le N+1)."""
-        base = {b: {"total": 0, **{s: 0 for s in sample_data.SOURCES}} for b in bces}
+        base = {b: {"total": 0, **{s: 0 for s in labels.SOURCES}} for b in bces}
         if not bces:
             return base
         pipeline = [
@@ -193,7 +161,7 @@ class MongoSource:
         ]
         for row in self._state.aggregate(pipeline):
             b, src, n = row["_id"]["bce"], row["_id"].get("source"), row["n"]
-            entry = base.setdefault(b, {"total": 0, **{s: 0 for s in sample_data.SOURCES}})
+            entry = base.setdefault(b, {"total": 0, **{s: 0 for s in labels.SOURCES}})
             if src in entry:
                 entry[src] += n
             entry["total"] += n
@@ -212,15 +180,22 @@ class MongoSource:
                 "size": s.get("size", 0),
                 "title": s.get("title") or s.get("reference") or s.get("ref", ""),
                 "date": s.get("date", ""),
-                "financials": None,  # KPI calculés en aval (CSV non parsé ici)
+                # KPIs réels calculés au scraping et stockés dans file_state
+                # (source NBB) ; None si le document n'en porte pas.
+                "financials": s.get("financials"),
             })
         return docs
 
-    def search(self, q: str, sector: str = "all", limit: int = 40) -> list[dict]:
+    def search(self, q: str, sector: str = "all", limit: int = 40,
+               offset: int = 0, with_docs: bool = False) -> dict:
         q = (q or "").strip()[:100]  # borne la longueur (anti-DoS regex)
         clauses: list[dict] = []
         if sector == "hotel":
             clauses.append(HOSPITALITY_Q)
+        if with_docs:
+            # Restreint aux entreprises qui ont au moins un document Bronze
+            # (présence dans file_state). distinct() -> liste des bce concernés.
+            clauses.append({"_id": {"$in": self._state.distinct("bce")}})
         if q:
             digits = _DIGITS.sub("", q)
             ors = [
@@ -236,9 +211,10 @@ class MongoSource:
         coll = self._companies
         if coll.estimated_document_count() == 0:
             coll = self._fallback
-        # tri AVANT limit -> sélection déterministe, cohérente avec MockSource
+        total = coll.count_documents(mongo_query)
+        # tri AVANT skip/limit -> pagination déterministe, cohérente avec MockSource
         docs = list(coll.find(mongo_query)
-                    .sort("denomination_principale", 1).limit(limit))
+                    .sort("denomination_principale", 1).skip(offset).limit(limit))
         companies = [self._map_company(d) for d in docs]
         counts = self._doc_counts_for([c["bce"] for c in companies])
         out = []
@@ -246,7 +222,7 @@ class MongoSource:
             c["doc_counts"] = counts.get(c["bce"], {"total": 0})
             out.append(_lite(c))
         out.sort(key=lambda c: c["denomination"])
-        return out
+        return {"total": total, "results": out}
 
     def get_company(self, bce: str) -> dict | None:
         bce = normalize_bce(bce)
@@ -257,7 +233,7 @@ class MongoSource:
         c = self._map_company(doc)
         c["documents"] = self._documents_for(bce)
         counts = {"total": len(c["documents"])}
-        for src in sample_data.SOURCES:
+        for src in labels.SOURCES:
             counts[src] = sum(1 for d in c["documents"] if d["source"] == src)
         c["doc_counts"] = counts
         return c
@@ -276,17 +252,25 @@ class MongoSource:
 # ---------------------------------------------------------------------------
 # Fabrique
 # ---------------------------------------------------------------------------
+class SourceUnavailable(RuntimeError):
+    """MongoDB injoignable : aucune donnée réelle disponible (pas de repli)."""
+
+
 def get_source():
-    """Renvoie une MongoSource si Mongo répond et contient des données, sinon MockSource."""
+    """Renvoie toujours une MongoSource réelle.
+
+    Aucun repli synthétique : si Mongo ne répond pas, on lève
+    ``SourceUnavailable`` (l'app affiche une erreur explicite). Si Mongo répond
+    mais que les collections sont vides, on renvoie quand même MongoSource — la
+    recherche donnera un total 0, jamais de fausses fiches.
+    """
     try:
         import pymongo  # import paresseux (pile pyOpenSSL fragile en local)
         client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=1200)
         client.admin.command("ping")
-        db = client[MONGO_DB]
-        has_data = (db[SILVER_COLLECTION].estimated_document_count() > 0
-                    or db[COMPANIES_COLLECTION].estimated_document_count() > 0)
-        if has_data:
-            return MongoSource(db)
-    except Exception:
-        pass
-    return MockSource()
+    except Exception as exc:  # noqa: BLE001 — toute erreur de connexion
+        raise SourceUnavailable(
+            f"MongoDB injoignable ({MONGO_URI}) — aucune donnée réelle. "
+            f"Démarrez MongoDB puis peuplez la base. Détail : {exc}"
+        ) from exc
+    return MongoSource(client[MONGO_DB])

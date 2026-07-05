@@ -13,16 +13,20 @@
   function statusCls(s) { var v = String(s == null ? "" : s).toLowerCase(); return STATUS_CLASSES[v] ? v : ""; }
   function api(path) { return fetch(path).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }); }
 
-  var state = { q: "", sector: "all", active: null, seq: 0, lastFocus: null };
+  var PAGE = 40;  // taille d'une page de résultats
+  var state = { q: "", sector: "all", withDocs: false, active: null, seq: 0,
+    lastFocus: null, items: [], total: 0, loadingMore: false };
 
   /* ---------- header stats ---------- */
   api("/api/stats").then(function (s) {
-    var demo = s.mode === "demo";
-    el("mode-dot").className = "dot " + s.mode;
-    el("mode-txt").textContent = demo ? "Mode démo (données représentatives)" : "MongoDB — données réelles";
+    el("mode-dot").className = "dot mongo";
+    el("mode-txt").textContent = "MongoDB — données réelles";
     el("stat-companies").textContent = nf.format(s.companies) + " entreprises";
     el("stat-docs").textContent = nf.format(s.documents) + " documents";
-  }).catch(function () { el("mode-txt").textContent = "source indisponible"; });
+  }).catch(function () {
+    el("mode-dot").className = "dot error";
+    el("mode-txt").textContent = "MongoDB injoignable — aucune donnée";
+  });
 
   /* ---------- search ---------- */
   var tmr = null;
@@ -41,17 +45,56 @@
       runSearch();
     });
   });
+  // Bascule « Avec documents » (combinable avec le filtre secteur).
+  var docToggle = el("doc-toggle");
+  if (docToggle) docToggle.addEventListener("click", function () {
+    state.withDocs = !state.withDocs;
+    docToggle.classList.toggle("is-on", state.withDocs);
+    docToggle.setAttribute("aria-pressed", state.withDocs ? "true" : "false");
+    runSearch();
+  });
 
+  function fetchPage(offset) {
+    return api("/api/search?sector=" + encodeURIComponent(state.sector) +
+      "&q=" + encodeURIComponent(state.q) +
+      (state.withDocs ? "&docs=1" : "") +
+      "&limit=" + PAGE + "&offset=" + offset);
+  }
+
+  // Nouvelle recherche : repart de la page 0 et remplace la liste.
   function runSearch() {
     var seq = ++state.seq;  // jeton de séquence -> ignore les réponses périmées
-    var url = "/api/search?sector=" + encodeURIComponent(state.sector) +
-      "&q=" + encodeURIComponent(state.q);
-    api(url).then(function (data) {
+    state.items = [];
+    state.total = 0;
+    el("results-list").innerHTML = '<div class="loading"><div class="spin"></div>Recherche…</div>';
+    fetchPage(0).then(function (data) {
       if (seq !== state.seq) return;  // une recherche plus récente a pris la main
-      renderResults(data);
+      state.items = data.results;
+      state.total = data.total;
+      renderList();
     }).catch(function () {
       if (seq !== state.seq) return;
       el("results-list").innerHTML = '<div class="loading">Erreur de recherche.</div>';
+    });
+  }
+
+  // Page suivante : ajoute les fiches à la suite (offset = nb déjà affiché).
+  function loadMore() {
+    if (state.loadingMore) return;
+    state.loadingMore = true;
+    var seq = state.seq;
+    var btn = el("load-more");
+    if (btn) { btn.disabled = true; btn.textContent = "Chargement…"; }
+    fetchPage(state.items.length).then(function (data) {
+      state.loadingMore = false;
+      if (seq !== state.seq) return;  // une nouvelle recherche a pris la main
+      state.items = state.items.concat(data.results);
+      state.total = data.total;
+      renderList();
+    }).catch(function () {
+      state.loadingMore = false;
+      if (seq !== state.seq) return;
+      if (btn) { btn.disabled = false; btn.textContent = "Réessayer"; }
     });
   }
 
@@ -62,26 +105,40 @@
       }).join("");
   }
 
-  function renderResults(data) {
-    el("results-count").textContent = data.count + (data.count === 1 ? " résultat" : " résultats");
+  function cardHTML(c) {
+    var hotel = c.is_hospitality ? '<span class="pill hotel">hôtellerie</span>' : "";
+    return '<button class="rcard" data-bce="' + esc(c.bce) + '">' +
+      '<div class="rc-name">' + esc(c.denomination) + '</div>' +
+      '<div class="rc-meta"><span class="rc-bce">' + esc(c.bce_formatted) + '</span>' +
+      '<span class="pill ' + statusCls(c.status) + '">' + esc(c.status_label) + '</span>' + hotel + '</div>' +
+      '<div class="rc-meta"><span class="rc-bce">' + esc(c.nace_code) + ' · ' + esc(c.nace_label) + '</span></div>' +
+      (c.doc_counts.total ? '<div class="rc-badges">' + srcBadges(c.doc_counts) + '</div>' : "") +
+      '</button>';
+  }
+
+  // Rendu complet de la liste courante (items accumulés) + pied de pagination.
+  function renderList() {
+    var shown = state.items.length;
+    el("results-count").textContent = state.total + (state.total === 1 ? " résultat" : " résultats");
     var host = el("results-list");
-    if (!data.count) {
+    if (!state.total) {
       host.innerHTML = '<div class="loading">Aucune entreprise ne correspond.</div>';
       return;
     }
-    host.innerHTML = data.results.map(function (c) {
-      var hotel = c.is_hospitality ? '<span class="pill hotel">hôtellerie</span>' : "";
-      return '<button class="rcard" data-bce="' + esc(c.bce) + '">' +
-        '<div class="rc-name">' + esc(c.denomination) + '</div>' +
-        '<div class="rc-meta"><span class="rc-bce">' + esc(c.bce_formatted) + '</span>' +
-        '<span class="pill ' + statusCls(c.status) + '">' + esc(c.status_label) + '</span>' + hotel + '</div>' +
-        '<div class="rc-meta"><span class="rc-bce">' + esc(c.nace_code) + ' · ' + esc(c.nace_label) + '</span></div>' +
-        (c.doc_counts.total ? '<div class="rc-badges">' + srcBadges(c.doc_counts) + '</div>' : "") +
-        '</button>';
-    }).join("");
+    var html = state.items.map(cardHTML).join("");
+    var remaining = state.total - shown;
+    if (remaining > 0) {
+      html += '<button class="load-more" id="load-more">Charger plus' +
+        '<span class="lm-count">' + shown + ' / ' + state.total + '</span></button>';
+    } else if (shown > PAGE) {
+      html += '<div class="list-end">Tous les résultats sont affichés</div>';
+    }
+    host.innerHTML = html;
     Array.prototype.forEach.call(host.querySelectorAll(".rcard"), function (card) {
       card.addEventListener("click", function () { openCompany(card.dataset.bce, card); });
     });
+    var lm = el("load-more");
+    if (lm) lm.addEventListener("click", loadMore);
     // ré-applique l'état actif si présent
     if (state.active) {
       var a = host.querySelector('.rcard[data-bce="' + state.active + '"]');

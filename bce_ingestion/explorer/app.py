@@ -4,11 +4,12 @@ Lancement :
     python -m bce_ingestion.explorer.app          # http://127.0.0.1:5001
     BCE_EXPLORER_PORT=8080 python -m bce_ingestion.explorer.app
 
-Endpoints JSON :
+Endpoints JSON (données 100 % réelles issues de MongoDB) :
     GET /api/stats
-    GET /api/search?q=<terme>&sector=<all|hotel>&limit=<n>
+    GET /api/search?q=<terme>&sector=<all|hotel>&limit=<n>&offset=<n>
     GET /api/company/<bce>
-    GET /api/document?bce=<b>&source=<s>&ref=<r>   (fichier réel ou aperçu démo)
+    GET /api/dashboard                              (agrégats du dashboard)
+    GET /api/document?bce=<b>&source=<s>&ref=<r>   (fichier Bronze réel ou aperçu)
 """
 from __future__ import annotations
 
@@ -30,30 +31,84 @@ DASHBOARD_HTML = os.environ.get(
 
 
 def _source():
-    """Résout la source à chaque requête (permet de brancher Mongo à chaud)."""
+    """Résout la source à chaque requête (permet de brancher Mongo à chaud).
+
+    Ne met en cache QUE si la connexion réussit : si Mongo est down,
+    ``get_source()`` lève ``SourceUnavailable`` et l'on retentera au prochain
+    appel (branchement de Mongo « à chaud » sans redémarrer l'app).
+    """
     src = getattr(app, "_source", None)
     if src is None:
         src = app._source = data_source.get_source()
     return src
 
 
+@app.errorhandler(data_source.SourceUnavailable)
+def _handle_source_unavailable(exc):
+    """MongoDB injoignable -> réponse explicite (jamais de données inventées)."""
+    message = str(exc)
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "source_unavailable", "message": message}), 503
+    html = (
+        "<!doctype html><meta charset='utf-8'>"
+        "<title>Source indisponible</title>"
+        "<div style=\"font-family:system-ui,sans-serif;max-width:520px;margin:18vh auto;"
+        "padding:26px 30px;border:1px solid #E3E7ED;border-radius:12px;color:#3A414D\">"
+        "<h2 style='margin:0 0 8px'>MongoDB injoignable</h2>"
+        "<p style='color:#697384;line-height:1.5'>L'explorateur ne sert que des "
+        "données réelles : aucune donnée synthétique de repli. Démarrez MongoDB "
+        "puis peuplez la base.</p>"
+        f"<pre style='background:#F7F8FA;border:1px solid #EDF0F4;border-radius:6px;"
+        f"padding:10px;white-space:pre-wrap;font-size:.8rem'>{message}</pre></div>"
+    )
+    return html, 503
+
+
 def _company_payload(bce: str) -> dict | None:
     company = _source().get_company(bce)
     if not company:
         return None
-    # Série financière (dépôts NBB) triée par exercice, pour la visualisation.
-    fin = [d["financials"] for d in company.get("documents", [])
-           if d.get("source") == "nbb" and d.get("financials")]
+    # Série financière (dépôts NBB). Une entreprise peut déposer PLUSIEURS
+    # comptes pour un même exercice (consolidé + statutaire, schémas distincts) :
+    # on ne garde qu'UN dépôt par année — le plus complet (le plus de KPIs
+    # renseignés) — pour une visualisation à une colonne par exercice.
+    by_year: dict = {}
+    for d in company.get("documents", []):
+        if d.get("source") != "nbb" or not d.get("financials"):
+            continue
+        f = d["financials"]
+        year = f.get("year")
+        filled = sum(1 for v in f.values() if v is not None)
+        if year not in by_year or filled > by_year[year][0]:
+            by_year[year] = (filled, f)
+    fin = [v[1] for v in by_year.values()]
     fin.sort(key=lambda f: f["year"])
     company = dict(company)
     company["financials"] = fin
     return company
 
 
+def _asset_version() -> str:
+    """Empreinte des assets statiques (max mtime) -> cache-busting des URL.
+
+    Change dès qu'app.js/styles.css est modifié : le navigateur refetch au lieu
+    de resservir une version en cache (sinon la pagination JS reste invisible).
+    """
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    latest = 0.0
+    try:
+        for name in os.listdir(static_dir):
+            latest = max(latest, os.path.getmtime(os.path.join(static_dir, name)))
+    except OSError:
+        pass
+    return str(int(latest))
+
+
 @app.route("/")
 def index():
     src = _source()
-    return render_template("index.html", mode=src.mode, stats=src.stats())
+    return render_template("index.html", mode=src.mode, stats=src.stats(),
+                           asset_v=_asset_version())
 
 
 @app.route("/dashboard")
@@ -78,8 +133,24 @@ def api_search():
         limit = min(max(int(request.args.get("limit", 40)), 1), 200)
     except (TypeError, ValueError):
         limit = 40
-    results = _source().search(q, sector=sector, limit=limit)
-    return jsonify({"mode": _source().mode, "count": len(results), "results": results})
+    try:
+        offset = max(int(request.args.get("offset", 0)), 0)
+    except (TypeError, ValueError):
+        offset = 0
+    with_docs = request.args.get("docs", "") in ("1", "true", "yes")
+    page = _source().search(q, sector=sector, limit=limit, offset=offset,
+                            with_docs=with_docs)
+    results = page["results"]
+    return jsonify({"mode": _source().mode, "total": page["total"],
+                    "offset": offset, "limit": limit,
+                    "count": len(results), "results": results})
+
+
+@app.route("/api/dashboard")
+def api_dashboard():
+    """Agrégats réels du dashboard (calculés en direct depuis MongoDB)."""
+    from . import dashboard
+    return jsonify(dashboard.payload(_source()._db))
 
 
 @app.route("/api/company/<bce>")
@@ -97,13 +168,21 @@ def _safe_local_path(hdfs_path: str) -> str | None:
     """
     if not hdfs_path or hdfs_path == "—":
         return None
-    # hdfs:///bronze/<bce>/... -> <bce>/...
+    root = os.path.realpath(BRONZE_LOCAL)
+
+    # Cas backend "local" : hdfs_path est déjà un chemin local absolu
+    # (ex. /.../bronze_local/<bce>/nbb/<year>/<ref>.csv). On l'utilise tel quel
+    # s'il vit bien sous la racine Bronze.
+    abs_candidate = os.path.realpath(hdfs_path)
+    if os.path.commonpath([root, abs_candidate]) == root and os.path.isfile(abs_candidate):
+        return abs_candidate
+
+    # Cas backend HDFS : hdfs:///bronze/<bce>/... -> <bce>/... sous BRONZE_LOCAL.
     rel = hdfs_path.split("://", 1)[-1].lstrip("/")
     for prefix in ("bronze/", ""):
         if rel.startswith(prefix):
             rel = rel[len(prefix):]
             break
-    root = os.path.realpath(BRONZE_LOCAL)
     candidate = os.path.realpath(os.path.join(root, rel))
     if os.path.commonpath([root, candidate]) != root:
         return None  # tentative de traversée de chemin

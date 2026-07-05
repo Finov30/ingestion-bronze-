@@ -52,12 +52,34 @@ header{background:linear-gradient(180deg,#FBFCFD,var(--ground));border-bottom:1p
   padding:8px 14px;border-radius:7px;cursor:pointer;font-weight:560}
 .seg-btn.is-on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 
+/* bascule « Avec documents » (combinable avec le filtre secteur) */
+.doc-toggle{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--hairline);
+  background:var(--surface-2);color:var(--muted);font:inherit;font-size:.82rem;font-weight:560;
+  padding:8px 13px;border-radius:10px;cursor:pointer;transition:border-color .12s,color .12s,background .12s}
+.doc-toggle:hover{border-color:var(--gold)}
+.doc-toggle .dt-box{width:15px;height:15px;border:1.5px solid var(--faint);border-radius:4px;
+  display:inline-block;position:relative;transition:background .12s,border-color .12s}
+.doc-toggle.is-on{border-color:var(--gold);color:var(--gold-deep);background:var(--gold-wash)}
+.doc-toggle.is-on .dt-box{background:var(--gold);border-color:var(--gold)}
+.doc-toggle.is-on .dt-box::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+
 /* layout */
 .layout{display:grid;grid-template-columns:340px 1fr;gap:16px;padding:12px clamp(16px,3vw,36px) 40px;align-items:start}
 .results{position:sticky;top:78px}
 .results-head{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
   font-weight:600;padding:4px 4px 10px}
 #results-list{display:flex;flex-direction:column;gap:9px;max-height:calc(100vh - 150px);overflow-y:auto;padding-right:2px}
+
+/* pagination */
+.load-more{margin-top:4px;padding:11px 14px;border:1px solid var(--hairline);border-radius:var(--r-sm);
+  background:var(--surface);color:var(--ink-soft);font:inherit;font-size:.82rem;font-weight:580;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:var(--shadow);
+  transition:border-color .12s,background .12s}
+.load-more:hover{border-color:var(--gold);background:var(--surface-2)}
+.load-more:disabled{cursor:default;color:var(--muted);opacity:.75}
+.load-more .lm-count{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+.list-end{margin-top:4px;padding:10px;text-align:center;font-size:.74rem;color:var(--faint)}
 
 /* result card */
 .rcard{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--r-sm);

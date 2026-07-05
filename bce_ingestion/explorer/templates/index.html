@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Explorateur d'entreprises BCE</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=asset_v) }}">
 </head>
 <body data-mode="{{ mode }}">
 
@@ -38,6 +38,10 @@
     <button class="seg-btn is-on" data-sector="all" role="tab" aria-selected="true">Toutes</button>
     <button class="seg-btn" data-sector="hotel" role="tab" aria-selected="false">Hôtellerie ^55</button>
   </div>
+  <button class="doc-toggle" id="doc-toggle" type="button" aria-pressed="false"
+          title="N'afficher que les entreprises ayant au moins un document Bronze ingéré">
+    <span class="dt-box" aria-hidden="true"></span>Avec documents
+  </button>
 </div>
 
 <div class="wrap layout">
@@ -77,6 +81,6 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js', v=asset_v) }}"></script>
 </body>
 </html>

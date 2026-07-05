@@ -5,6 +5,7 @@ Application web légère (Flask) au-dessus du pipeline d'ingestion :
 - visualisation des documents Bronze liés (dépôts NBB/CBSO, statuts notaire,
   publications eJustice) et des KPI financiers des comptes annuels.
 
-Source de données hybride (voir data_source.py) : interroge MongoDB si disponible,
-sinon bascule sur un jeu de données représentatif déterministe (sample_data.py).
+Source de données : MongoDB uniquement (voir data_source.py) — aucune donnée
+synthétique. Si la base est injoignable, une erreur explicite est renvoyée
+plutôt que de fausses fiches.
 """
