@@ -23,6 +23,9 @@ SILVER_COLLECTION = os.environ.get("BCE_SILVER_COLLECTION", "enterprise_silver")
 # State DB au niveau ENTREPRISE (statut de scraping : pending/in_progress/done).
 SCRAPE_STATE_COLLECTION = os.environ.get("BCE_SCRAPE_STATE_COLLECTION", "scrape_state")
 
+# --- Jour 3 : couche Gold (agrégats financiers annuels par entreprise) ---
+GOLD_COLLECTION = os.environ.get("BCE_GOLD_COLLECTION", "hotel_gold")
+
 # ---------------------------------------------------------------------------
 # HDFS — couche Bronze (données brutes)
 # ---------------------------------------------------------------------------

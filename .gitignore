@@ -10,3 +10,7 @@ tmp/
 # Couche Bronze locale (données réelles scrapées, régénérables via scripts/)
 bronze_local/
 kbo/
+
+# Frontend React (jour 3)
+node_modules/
+dist/
