@@ -95,6 +95,10 @@
     font-size:.78rem;color:var(--muted);padding:10px 0 0;
   }
   .notice b{color:var(--ink-soft);font-weight:600}
+  .await-kbo{color:var(--muted);font-size:.8rem;padding:18px;text-align:center}
+  .dash-error{margin:10px 0 0;padding:12px 14px;border:1px solid var(--error);
+    border-radius:8px;color:var(--error);font-size:.82rem;background:rgba(195,75,59,.06)}
+  .dash-error b{font-weight:600}
 
   /* ---------- kpi strip ---------- */
   .kpis{
@@ -284,7 +288,8 @@
 </header>
 
 <div class="wrap">
-  <p class="notice"><b>Données représentatives.</b>&nbsp;Le repo ne contient pas de dataset — les documents vivent dans MongoDB / HDFS. Les chiffres ci-dessous sont des ordres de grandeur cohérents, calés sur les vrais référentiels du code (statuts KBO, formes juridiques exclues, NACE division 55, sources <span class="mono">nbb/notaire/ejustice</span>).</p>
+  <p class="notice"><b>Données réelles.</b>&nbsp;Tous les chiffres ci-dessous sont calculés en direct depuis MongoDB (collections <span class="mono">companies / enterprise_silver / file_state / scrape_state</span>) via <span class="mono">/api/dashboard</span>. Les blocs dépendant du registre KBO (hôtellerie NACE 55, régions, formes juridiques) s'activent une fois le dump KBO chargé.</p>
+  <div id="dash-error" class="dash-error" hidden></div>
 
   <!-- KPIs -->
   <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
@@ -424,91 +429,25 @@
   var nf = new Intl.NumberFormat('fr-BE');
   var pf = function(x){ return (Math.round(x*10)/10).toString().replace('.',',')+' %'; };
 
-  /* ---------------- DATA ---------------- */
-  var KPI = [
-    {label:"Entreprises référencées", val:1950000, unit:"companies · seed KBO", accent:"var(--gold)"},
-    {label:"Documents Bronze ingérés", val:847300, unit:"fichiers PDF/CSV sur HDFS", accent:"var(--nbb)"},
-    {label:"Hôtels ciblés (NACE 55)", val:11842, unit:"établissements <b>is_hospitality</b>", accent:"var(--gold)"},
-    {label:"Hôtels scrapés (done)", val:9260, unit:"<b>78,2 %</b> du ciblage", accent:"var(--done)"},
-    {label:"Dépôts NBB ≥ 2021", val:24180, unit:"comptes annuels CSV", accent:"var(--nbb)"},
-    {label:"Taux d'erreur ingestion", val:"2,7 %", raw:true, unit:"fichiers en statut <b>error</b>", accent:"var(--error)"}
-  ];
-
-  var FUNNEL_A = [
-    {name:"Seed companies (KBO)", val:1950000, color:"#6C7686"},
-    {name:"Actives (Status = AC)", val:1062000, color:"#586173"},
-    {name:"Silver enrichi", val:1950000, color:"#8B94A3"}
-  ];
-  var FUNNEL_B = [
-    {name:"Hébergement (is_hospitality ^55)", val:14930, color:"var(--gold)"},
-    {name:"Éligibles (AC·type 2·forme·MAIN 55)", val:11842, color:"var(--gold-deep)"},
-    {name:"Chargées « pending »", val:11842, color:"#B98A3C"},
-    {name:"Scrapées « done »", val:9260, color:"var(--done)"}
-  ];
-
-  var SOURCES = [
-    {label:"NBB / CBSO", key:"nbb", val:512400, color:"var(--nbb)"},
-    {label:"eJustice", key:"ejustice", val:268900, color:"var(--ejustice)"},
-    {label:"Notaire", key:"notaire", val:66000, color:"var(--notaire)"}
-  ];
-
-  var STATUS = [ // per source: done / pending / error
-    {src:"nbb", color:"var(--nbb)", done:512400, pending:18700, error:14100},
-    {src:"notaire", color:"var(--notaire)", done:66000, pending:4200, error:9800},
-    {src:"ejustice", color:"var(--ejustice)", done:268900, pending:12500, error:1900}
-  ];
-
-  var SCRAPE = [
-    {label:"done", val:9260, color:"var(--done)"},
-    {label:"pending", val:1980, color:"var(--pending)"},
-    {label:"in_progress", val:602, color:"var(--progress)"}
-  ];
-
-  var NACE = [
-    {code:"55100", lbl:"Hôtels et hébergement similaire", val:6820},
-    {code:"55201", lbl:"Hébergement touristique court séjour", val:1740},
-    {code:"55203", lbl:"Gîtes / meublés de vacances", val:1310},
-    {code:"55202", lbl:"Chambres d'hôtes", val:980},
-    {code:"55300", lbl:"Terrains de camping & caravanes", val:520},
-    {code:"55900", lbl:"Autres hébergements", val:258},
-    {code:"55400", lbl:"Auberges de jeunesse & refuges", val:214}
-  ];
-
-  var REGIONS = [
-    {name:"Flandre", val:6870, pct:58, color:"#8A621B"},
-    {name:"Wallonie", val:3080, pct:26, color:"#B0812C"},
-    {name:"Bruxelles-Cap.", val:1892, pct:16, color:"#D8B563"}
-  ];
-
-  var YEARS = [
-    {y:"2021", val:4120},{y:"2022", val:5380},{y:"2023", val:6240},{y:"2024", val:6910},{y:"2025", val:1530}
-  ];
-
-  var FORMS = [
-    {code:"610", lbl:"SRL (BV)", val:5420},
-    {code:"014", lbl:"SA (NV)", val:2180},
-    {code:"706", lbl:"Entreprise individuelle", val:1760},
-    {code:"612", lbl:"SComm / SNC", val:980},
-    {code:"611", lbl:"Société simple", val:720},
-    {code:"—", lbl:"Autres formes admises", val:782}
-  ];
-
-  var DEPOSITS = [
-    ["0878065378","GOOGLE BELGIUM SRL","2024","REF-2024-0091","nbb","hdfs:///bronze/0878065378/nbb/2024/REF-2024-0091.csv","done"],
-    ["0203430576","SNCB SA","2023","REF-2023-4417","nbb","hdfs:///bronze/0203430576/nbb/2023/REF-2023-4417.csv","done"],
-    ["0456221109","HOTEL DES ARDENNES SRL","2024","REF-2024-1180","nbb","hdfs:///bronze/0456221109/nbb/2024/REF-2024-1180.csv","done"],
-    ["0612889034","BRUGGE BEACH HOTEL BV","2025","REF-2025-0042","nbb","—","in_progress"],
-    ["0741556210","CAMPING HAUTE MEUSE SRL","2022","REF-2022-3355","nbb","hdfs:///bronze/0741556210/nbb/2022/REF-2022-3355.csv","done"]
-  ];
+  /* ---------------- DATA : chargée en direct via /api/dashboard (100% réel) ---------------- */
 
   /* ---------------- helpers ---------------- */
   function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
   function raf(fn){ requestAnimationFrame(function(){ requestAnimationFrame(fn); }); }
 
+  // Placeholder discret quand un bloc dépend du registre KBO non encore chargé.
+  function awaitKbo(hostId){
+    var host=document.getElementById(hostId);
+    if(host) host.innerHTML='<div class="await-kbo">Nécessite le registre KBO (dump en cours de chargement)</div>';
+  }
+  function isEmpty(rows){ return !rows || !rows.length; }
+  function allZero(rows, key){ return isEmpty(rows) || rows.every(function(r){return !(+r[key]);}); }
+
   /* ---------------- KPIs ---------------- */
-  (function(){
+  function renderKPI(KPI){
     var host = document.getElementById('kpis');
-    KPI.forEach(function(k){
+    host.innerHTML='';
+    (KPI||[]).forEach(function(k){
       var v = k.raw ? k.val : nf.format(k.val);
       var e = el('div','kpi');
       e.style.setProperty('--accent', k.accent);
@@ -517,30 +456,33 @@
         '<div class="k-unit">'+k.unit+'</div>';
       host.appendChild(e);
     });
-  })();
+  }
 
   /* ---------------- funnels ---------------- */
   function renderFunnel(hostId, rows){
     var host = document.getElementById(hostId);
-    var max = Math.max.apply(null, rows.map(function(r){return r.val;}));
-    var top = rows[0].val;
+    host.innerHTML='';
+    var max = Math.max.apply(null, (rows||[]).map(function(r){return r.val;}));
+    if(isEmpty(rows) || !(max>0)){ awaitKbo(hostId); return; }
+    var top = rows[0].val || max;
     rows.forEach(function(r){
       var row = el('div','frow');
       row.innerHTML =
         '<div class="fl"><span class="name">'+r.name+'</span><span class="num">'+nf.format(r.val)+'</span></div>'+
-        '<div class="ftrack"><div class="fbar" style="background:'+r.color+'"><span class="pct">'+pf(r.val/top*100)+'</span></div></div>';
+        '<div class="ftrack"><div class="fbar" style="background:'+r.color+'"><span class="pct">'+pf(top?r.val/top*100:0)+'</span></div></div>';
       host.appendChild(row);
       var bar = row.querySelector('.fbar');
       raf(function(){ bar.style.width = (r.val/max*100)+'%'; });
     });
   }
-  renderFunnel('funnel-a', FUNNEL_A);
-  renderFunnel('funnel-b', FUNNEL_B);
 
   /* ---------------- donut ---------------- */
   function donut(hostId, legId, data, size, centerCap){
     var host = document.getElementById(hostId);
-    var total = data.reduce(function(a,b){return a+b.val;},0);
+    host.innerHTML='';
+    var leg0=document.getElementById(legId); if(leg0) leg0.innerHTML='';
+    var total = (data||[]).reduce(function(a,b){return a+b.val;},0);
+    if(isEmpty(data) || !(total>0)){ awaitKbo(hostId); return; }
     var thick = Math.round(size*0.19), r=(size-thick)/2, cx=size/2, cy=size/2;
     var circ = 2*Math.PI*r;
     var svg='<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" role="img">';
@@ -571,14 +513,16 @@
       leg.appendChild(li);
     });
   }
-  donut('donut-src','leg-src', SOURCES, 148, 'documents');
-  donut('donut-scrape','leg-scrape', SCRAPE, 148, 'hôtels');
 
   /* ---------------- status stacked ---------------- */
-  (function(){
+  function renderStatus(STATUS){
     var host=document.getElementById('sstack');
+    host.innerHTML='';
+    var leg0=document.getElementById('leg-status'); if(leg0) leg0.innerHTML='';
+    if(isEmpty(STATUS)){ awaitKbo('sstack'); return; }
     STATUS.forEach(function(s){
       var tot=s.done+s.pending+s.error;
+      if(!(tot>0)) tot=1; // évite la division par zéro (barre vide)
       var segs=[
         {k:'done',v:s.done,c:'var(--done)'},
         {k:'pending',v:s.pending,c:'var(--pending)'},
@@ -601,12 +545,14 @@
     [['done','var(--done)'],['pending','var(--pending)'],['error','var(--error)']].forEach(function(p){
       var li=el('div','li'); li.innerHTML='<span class="sw" style="background:'+p[1]+'"></span>'+p[0]; leg.appendChild(li);
     });
-  })();
+  }
 
   /* ---------------- horizontal bars (NACE / forms) ---------------- */
   function hbars(hostId, data, color){
     var host=document.getElementById(hostId);
-    var max=Math.max.apply(null,data.map(function(d){return d.val;}));
+    host.innerHTML='';
+    var max=Math.max.apply(null,(data||[]).map(function(d){return d.val;}));
+    if(isEmpty(data) || !(max>0)){ awaitKbo(hostId); return; }
     data.forEach(function(d){
       var e=el('div','hbar');
       e.innerHTML='<div class="hl"><span style="display:flex;gap:8px;min-width:0"><span class="code">'+d.code+'</span>'+
@@ -617,13 +563,13 @@
       raf(function(){ f.style.width=(d.val/max*100)+'%'; });
     });
   }
-  hbars('nace', NACE, 'linear-gradient(90deg,var(--gold),var(--gold-deep))');
-  hbars('forms', FORMS, 'linear-gradient(90deg,#7E8798,#586173)');
 
   /* ---------------- years vertical ---------------- */
-  (function(){
+  function renderYears(YEARS){
     var host=document.getElementById('years');
-    var max=Math.max.apply(null,YEARS.map(function(d){return d.val;}));
+    host.innerHTML='';
+    var max=Math.max.apply(null,(YEARS||[]).map(function(d){return d.val;}));
+    if(isEmpty(YEARS) || !(max>0)){ awaitKbo('years'); return; }
     YEARS.forEach(function(d){
       var e=el('div','vb');
       var partial = d.y==='2025';
@@ -634,12 +580,17 @@
       var col=e.querySelector('.col');
       raf(function(){ col.style.height=col.getAttribute('data-h')+'%'; });
     });
-  })();
+  }
 
   /* ---------------- Belgium schematic ---------------- */
-  (function(){
+  function renderRegions(REGIONS){
     var host=document.getElementById('bemap');
-    var fl=REGIONS[0].color, wa=REGIONS[1].color, bx=REGIONS[2].color;
+    host.innerHTML='';
+    if(allZero(REGIONS,'val')){ awaitKbo('bemap'); return; }
+    var byName={}; REGIONS.forEach(function(r){ byName[r.name]=r; });
+    var fl=(byName['Flandre']||{}).color||'#8A621B';
+    var wa=(byName['Wallonie']||{}).color||'#B0812C';
+    var bx=(byName['Bruxelles-Cap.']||byName['Bruxelles-Capitale']||{}).color||'#D8B563';
     // stylised 3-region silhouette (schematic, not geographically exact)
     var svg=''+
     '<svg width="190" height="150" viewBox="0 0 190 150" role="img" aria-label="Carte schématique des régions belges">'+
@@ -661,11 +612,16 @@
     });
     labs+='</div>';
     host.innerHTML=svg+labs;
-  })();
+  }
 
   /* ---------------- table ---------------- */
-  (function(){
+  function renderTable(DEPOSITS){
     var tb=document.getElementById('tbody');
+    tb.innerHTML='';
+    if(isEmpty(DEPOSITS)){
+      tb.innerHTML='<tr><td colspan="7" class="await-kbo">Aucun dépôt ingéré pour l\'instant.</td></tr>';
+      return;
+    }
     DEPOSITS.forEach(function(row){
       var tr=el('tr');
       var st=row[6];
@@ -679,7 +635,39 @@
         '<td><span class="pill '+st+'">'+st+'</span></td>';
       tb.appendChild(tr);
     });
-  })();
+  }
+
+  /* ---------------- boot : charge /api/dashboard puis rend tout (100% réel) ---------------- */
+  function boot(){
+    fetch('/api/dashboard', {headers:{'Accept':'application/json'}})
+      .then(function(r){
+        if(!r.ok){ return r.json().catch(function(){return {};}).then(function(j){
+          throw new Error(j.message || ('HTTP '+r.status)); }); }
+        return r.json();
+      })
+      .then(function(d){
+        renderKPI(d.kpi);
+        renderFunnel('funnel-a', d.funnel_a);
+        renderFunnel('funnel-b', d.funnel_b);
+        donut('donut-src','leg-src', d.sources, 148, 'documents');
+        donut('donut-scrape','leg-scrape', d.scrape, 148, 'entreprises');
+        renderStatus(d.status);
+        hbars('nace', d.nace, 'linear-gradient(90deg,var(--gold),var(--gold-deep))');
+        hbars('forms', d.forms, 'linear-gradient(90deg,#7E8798,#586173)');
+        renderYears(d.years);
+        renderRegions(d.regions);
+        renderTable(d.deposits);
+      })
+      .catch(function(err){
+        var box=document.getElementById('dash-error');
+        if(box){
+          box.hidden=false;
+          box.innerHTML='<b>MongoDB injoignable</b> — le dashboard n\'affiche que des données réelles. '+
+            'Démarrez MongoDB et peuplez la base. <span class="mono">('+(err&&err.message?err.message:'erreur')+')</span>';
+        }
+      });
+  }
+  boot();
 })();
 </script>
 </body>
