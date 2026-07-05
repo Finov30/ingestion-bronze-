@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipeline BCE — Bronze → Silver & Ciblage Hôtellerie</title>
+<style>
+  :root{
+    --ground:#F1F3F6;
+    --surface:#FFFFFF;
+    --surface-2:#F7F8FA;
+    --ink:#1A1D24;
+    --ink-soft:#3A414D;
+    --muted:#697384;
+    --faint:#9AA3B2;
+    --hairline:#E3E7ED;
+    --hairline-2:#EDF0F4;
+    /* accent — or/ocre "registre officiel", desaturé */
+    --gold:#B0812C;
+    --gold-deep:#8A621B;
+    --gold-wash:#F4EAD4;
+    /* categoriel — sources */
+    --nbb:#2F6BB0;
+    --ejustice:#D67F2C;
+    --notaire:#3E9B6C;
+    /* semantique — statuts */
+    --done:#2E9E68;
+    --pending:#C99A2E;
+    --progress:#3C7DBF;
+    --error:#C34B3B;
+
+    --r:12px;
+    --r-sm:8px;
+    --shadow:0 1px 2px rgba(26,29,36,.04), 0 3px 10px rgba(26,29,36,.05);
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SFMono-Regular","SF Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--ground);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:1360px;margin:0 auto;padding:0 clamp(16px,3vw,40px)}
+
+  /* ---------- header ---------- */
+  header{
+    border-bottom:1px solid var(--hairline);
+    background:linear-gradient(180deg,#FBFCFD, var(--ground));
+    position:sticky;top:0;z-index:20;
+    backdrop-filter:saturate(1.2);
+  }
+  .head-row{display:flex;align-items:center;gap:20px;padding:16px 0 15px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:14px;min-width:0}
+  .seal{
+    flex:none;width:42px;height:42px;border-radius:11px;
+    background:radial-gradient(120% 120% at 30% 20%, #C79A45, var(--gold-deep));
+    color:#fff;display:grid;place-items:center;
+    font-family:var(--mono);font-weight:700;font-size:15px;letter-spacing:.5px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.35), var(--shadow);
+  }
+  .brand h1{
+    margin:0;font-size:1.16rem;font-weight:680;letter-spacing:-.01em;line-height:1.15;
+    text-wrap:balance;
+  }
+  .brand .sub{margin:2px 0 0;color:var(--muted);font-size:.8rem;letter-spacing:.005em}
+  .head-meta{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .chip{
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.02em;
+    padding:5px 10px;border-radius:999px;border:1px solid var(--hairline);
+    background:var(--surface);color:var(--ink-soft);display:inline-flex;gap:7px;align-items:center;
+  }
+  .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .live{position:relative}
+  .live::before{content:"";position:absolute;inset:0;border-radius:50%;background:var(--done);animation:pulse 2.4s ease-out infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(46,158,104,.5)}70%{box-shadow:0 0 0 7px rgba(46,158,104,0)}100%{box-shadow:0 0 0 0 rgba(46,158,104,0)}}
+
+  .medallion{display:flex;gap:0;align-items:stretch;border:1px solid var(--hairline);border-radius:999px;overflow:hidden;background:var(--surface)}
+  .medallion span{font-size:.7rem;font-weight:600;letter-spacing:.04em;padding:5px 12px;color:var(--muted);border-right:1px solid var(--hairline-2)}
+  .medallion span:last-child{border-right:0}
+  .medallion .m-on{color:#fff}
+  .m-bronze{background:linear-gradient(180deg,#B07A3E,#8A5A28)}
+  .m-silver{background:linear-gradient(180deg,#8B94A3,#69727F)}
+
+  /* ---------- notice ---------- */
+  .notice{
+    display:flex;gap:10px;align-items:baseline;
+    font-size:.78rem;color:var(--muted);padding:10px 0 0;
+  }
+  .notice b{color:var(--ink-soft);font-weight:600}
+
+  /* ---------- kpi strip ---------- */
+  .kpis{
+    display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin:20px 0 6px;
+  }
+  .kpi{
+    background:var(--surface);border:1px solid var(--hairline);border-radius:var(--r);
+    padding:15px 16px 14px;box-shadow:var(--shadow);position:relative;overflow:hidden;
+  }
+  .kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent,var(--gold))}
+  .kpi .k-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px}
+  .kpi .k-val{font-family:var(--mono);font-weight:600;font-size:1.72rem;letter-spacing:-.02em;margin:8px 0 2px;font-variant-numeric:tabular-nums;line-height:1}
+  .kpi .k-unit{font-size:.72rem;color:var(--faint)}
+  .kpi .k-unit b{color:var(--ink-soft);font-weight:600}
+
+  /* ---------- grid ---------- */
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;margin:14px 0 26px}
+  .panel{
+    background:var(--surface);border:1px solid var(--hairline);border-radius:var(--r);
+    padding:16px 18px 18px;box-shadow:var(--shadow);min-width:0;display:flex;flex-direction:column;
+  }
+  .col-12{grid-column:span 12}.col-7{grid-column:span 7}.col-5{grid-column:span 5}
+  .col-4{grid-column:span 4}.col-6{grid-column:span 6}.col-8{grid-column:span 8}
+
+  .p-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:4px}
+  .p-title{font-size:.95rem;font-weight:670;letter-spacing:-.005em}
+  .p-unit{font-size:.72rem;color:var(--faint);font-family:var(--mono)}
+  .p-sub{font-size:.76rem;color:var(--muted);margin:0 0 12px}
+
+  /* legend */
+  .legend{display:flex;flex-wrap:wrap;gap:12px 16px;margin-top:12px}
+  .legend .li{display:flex;align-items:center;gap:7px;font-size:.76rem;color:var(--ink-soft)}
+  .legend .sw{width:11px;height:11px;border-radius:3px;flex:none}
+  .legend .val{font-family:var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+
+  /* ---------- funnel ---------- */
+  .funnel-cols{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:6px}
+  .funnel-cols h4{margin:0 0 12px;font-size:.74rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;display:flex;align-items:center;gap:8px}
+  .funnel-cols h4 .tag{font-family:var(--mono);font-size:.66rem;background:var(--surface-2);border:1px solid var(--hairline);color:var(--faint);padding:2px 7px;border-radius:6px;letter-spacing:.02em;text-transform:none}
+  .frow{display:grid;grid-template-columns:1fr;gap:5px;margin-bottom:12px}
+  .frow .fl{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:.8rem}
+  .frow .fl .name{color:var(--ink-soft);font-weight:520}
+  .frow .fl .num{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .ftrack{height:22px;border-radius:6px;background:var(--surface-2);border:1px solid var(--hairline-2);overflow:hidden;position:relative}
+  .fbar{height:100%;border-radius:5px 6px 6px 5px;width:0;transition:width 1s cubic-bezier(.2,.7,.2,1);position:relative}
+  .fbar .pct{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:.66rem;color:rgba(255,255,255,.92);font-weight:600}
+
+  /* horizontal bar list (NACE, forms) */
+  .hbars{display:flex;flex-direction:column;gap:11px;margin-top:6px}
+  .hbar{display:grid;grid-template-columns:1fr;gap:5px}
+  .hbar .hl{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .hbar .code{font-family:var(--mono);font-size:.72rem;color:var(--gold-deep);font-weight:600;flex:none}
+  .hbar .lbl{font-size:.8rem;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hbar .num{font-family:var(--mono);font-size:.78rem;font-weight:600;font-variant-numeric:tabular-nums}
+  .hbar .htrack{height:9px;border-radius:5px;background:var(--surface-2);overflow:hidden}
+  .hbar .hfill{height:100%;border-radius:5px;width:0;transition:width .9s cubic-bezier(.2,.7,.2,1)}
+
+  /* vertical bars (years) */
+  .vbars{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;height:150px;margin-top:10px;padding-top:8px}
+  .vb{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;height:100%;justify-content:flex-end;min-width:0}
+  .vb .col{width:70%;max-width:46px;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,var(--nbb),#25548c);height:0;transition:height 1s cubic-bezier(.2,.7,.2,1);position:relative}
+  .vb .vnum{font-family:var(--mono);font-size:.72rem;font-weight:600;font-variant-numeric:tabular-nums}
+  .vb .vx{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+
+  /* 100% stacked bars (status per source) */
+  .sstack{display:flex;flex-direction:column;gap:16px;margin-top:8px}
+  .ss{display:grid;grid-template-columns:1fr;gap:6px}
+  .ss .sh{display:flex;justify-content:space-between;align-items:baseline}
+  .ss .src{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.82rem}
+  .ss .src .sw{width:9px;height:9px;border-radius:2px}
+  .ss .tot{font-family:var(--mono);font-size:.74rem;color:var(--muted);font-variant-numeric:tabular-nums}
+  .ss .strack{display:flex;height:20px;border-radius:6px;overflow:hidden;border:1px solid var(--hairline-2)}
+  .ss .seg{height:100%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:.64rem;color:#fff;font-weight:600;min-width:0;transition:width .9s ease}
+  .ss .errline{font-size:.72rem;color:var(--muted);font-family:var(--mono)}
+  .ss .errline b{color:var(--error)}
+
+  /* donut */
+  .donut-wrap{display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-top:8px}
+  .donut{flex:none;position:relative}
+  .donut .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  .donut .center .big{font-family:var(--mono);font-weight:600;font-size:1.4rem;letter-spacing:-.02em;line-height:1}
+  .donut .center .cap{font-size:.66rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:3px}
+
+  /* belgium schematic map */
+  .bemap{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  .bemap svg{flex:none}
+  .region-lab{display:flex;flex-direction:column;gap:10px;min-width:150px}
+  .rl{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;font-size:.8rem}
+  .rl .sw{width:12px;height:12px;border-radius:3px}
+  .rl .rn{color:var(--ink-soft)}
+  .rl .rv{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .rl .rp{font-family:var(--mono);font-size:.7rem;color:var(--faint)}
+
+  /* table */
+  .tbl-scroll{overflow-x:auto;margin-top:8px;border:1px solid var(--hairline-2);border-radius:var(--r-sm)}
+  table{border-collapse:collapse;width:100%;font-size:.8rem;min-width:720px}
+  thead th{
+    text-align:left;font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;
+    padding:10px 14px;background:var(--surface-2);border-bottom:1px solid var(--hairline);white-space:nowrap;
+  }
+  tbody td{padding:9px 14px;border-bottom:1px solid var(--hairline-2);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:var(--surface-2)}
+  td.mono,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  td.path{color:var(--muted);font-size:.74rem;max-width:280px;overflow:hidden;text-overflow:ellipsis}
+  .pill{font-family:var(--mono);font-size:.68rem;font-weight:600;padding:2px 9px;border-radius:999px;display:inline-block}
+  .pill.done{background:rgba(46,158,104,.13);color:#1f7a4d}
+  .pill.progress{background:rgba(60,125,191,.14);color:#2a5f96}
+  .pill.pending{background:rgba(201,154,46,.16);color:#8a6710}
+  .pill.error{background:rgba(195,75,59,.14);color:#a13627}
+
+  /* pipeline footer */
+  .pipeline{
+    background:var(--surface);border:1px solid var(--hairline);border-radius:var(--r);
+    box-shadow:var(--shadow);padding:20px 20px 22px;margin-bottom:22px;
+  }
+  .pipeline > .p-title{margin-bottom:2px}
+  .pipeline .p-sub{margin-bottom:16px}
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+  .step{position:relative;padding:0 20px}
+  .step:not(:last-child){border-right:1px dashed var(--hairline)}
+  .step:first-child{padding-left:0}
+  .step .snum{
+    font-family:var(--mono);font-size:.72rem;font-weight:700;color:var(--gold-deep);
+    width:26px;height:26px;border-radius:8px;border:1px solid var(--gold-wash);background:var(--gold-wash);
+    display:grid;place-items:center;margin-bottom:9px;
+  }
+  .step h5{margin:0 0 6px;font-size:.9rem;font-weight:670}
+  .step p{margin:0;font-size:.78rem;color:var(--muted);line-height:1.5}
+  .step code{font-family:var(--mono);font-size:.72rem;background:var(--surface-2);padding:1px 5px;border-radius:4px;color:var(--ink-soft);border:1px solid var(--hairline-2)}
+  .step .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+  .step .tags .t{font-family:var(--mono);font-size:.66rem;padding:2px 7px;border-radius:5px;border:1px solid var(--hairline);color:var(--muted)}
+
+  .foot-note{
+    display:flex;gap:14px;flex-wrap:wrap;align-items:center;
+    border-top:1px solid var(--hairline);margin-top:18px;padding-top:14px;
+    font-size:.74rem;color:var(--muted);font-family:var(--mono)
+  }
+  .foot-note .kv{color:var(--ink-soft)}
+  .foot-note b{color:var(--gold-deep);font-weight:600}
+
+  footer.pg{padding:0 0 40px;color:var(--faint);font-size:.74rem;text-align:center}
+
+  @media(max-width:1020px){
+    .kpis{grid-template-columns:repeat(3,1fr)}
+    .col-7,.col-5,.col-4,.col-6,.col-8{grid-column:span 6}
+    .steps{grid-template-columns:repeat(2,1fr);gap:22px 0}
+    .step:nth-child(2){border-right:0}
+    .step:nth-child(odd){padding-left:0}
+  }
+  @media(max-width:680px){
+    .kpis{grid-template-columns:repeat(2,1fr)}
+    .grid > *{grid-column:span 12 !important}
+    .funnel-cols{grid-template-columns:1fr;gap:22px}
+    .steps{grid-template-columns:1fr}
+    .step{border-right:0 !important;padding:0 0 4px !important}
+    .head-meta{width:100%;margin-left:0}
+  }
+  @media(prefers-reduced-motion:reduce){
+    *{animation:none !important;transition:none !important}
+  }
+  :focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:4px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="head-row">
+      <div class="brand">
+        <div class="seal">BCE</div>
+        <div>
+          <h1>Pipeline BCE — Ingestion Bronze → Silver &amp; Ciblage Hôtellerie</h1>
+          <p class="sub">Banque-Carrefour des Entreprises · architecture medallion · NBB/CBSO · notaire.be · eJustice</p>
+        </div>
+      </div>
+      <div class="head-meta">
+        <div class="medallion" title="Couches medallion">
+          <span class="m-on m-bronze">BRONZE</span>
+          <span class="m-on m-silver">SILVER</span>
+          <span>GOLD · à venir</span>
+        </div>
+        <span class="chip"><span class="dot live" style="background:var(--done)"></span>run @daily · 03/07/2026</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <p class="notice"><b>Données représentatives.</b>&nbsp;Le repo ne contient pas de dataset — les documents vivent dans MongoDB / HDFS. Les chiffres ci-dessous sont des ordres de grandeur cohérents, calés sur les vrais référentiels du code (statuts KBO, formes juridiques exclues, NACE division 55, sources <span class="mono">nbb/notaire/ejustice</span>).</p>
+
+  <!-- KPIs -->
+  <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
+
+  <div class="grid">
+
+    <!-- FUNNEL -->
+    <section class="panel col-12">
+      <div class="p-head">
+        <div class="p-title">Entonnoir du pipeline — de l'univers KBO au scraping des comptes annuels</div>
+        <div class="p-unit">nombre d'entreprises</div>
+      </div>
+      <div class="funnel-cols">
+        <div>
+          <h4>Univers registre <span class="tag">échelle 1,95 M</span></h4>
+          <div id="funnel-a"></div>
+        </div>
+        <div>
+          <h4>Entonnoir hôtellerie <span class="tag">échelle propre — zoom ciblage</span></h4>
+          <div id="funnel-b"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- G2 sources donut -->
+    <section class="panel col-4">
+      <div class="p-head"><div class="p-title">Sources Bronze ingérées</div></div>
+      <p class="p-sub">Fichiers PDF/CSV en statut <span class="mono">done</span> sur HDFS, par portail.</p>
+      <div class="donut-wrap">
+        <div class="donut" id="donut-src"></div>
+        <div class="legend" id="leg-src" style="flex-direction:column;gap:10px"></div>
+      </div>
+    </section>
+
+    <!-- G3 status stacked -->
+    <section class="panel col-4">
+      <div class="p-head"><div class="p-title">Statut d'ingestion par source</div></div>
+      <p class="p-sub">Composition <span class="mono">file_state</span> — le mur anti-bot F5 pénalise <span class="mono">notaire</span>.</p>
+      <div class="sstack" id="sstack"></div>
+      <div class="legend" id="leg-status"></div>
+    </section>
+
+    <!-- G7 scrape donut -->
+    <section class="panel col-4">
+      <div class="p-head"><div class="p-title">Avancement scraping hôtellerie</div></div>
+      <p class="p-sub">État <span class="mono">scrape_state</span> des 11 842 hôtels ciblés.</p>
+      <div class="donut-wrap">
+        <div class="donut" id="donut-scrape"></div>
+        <div class="legend" id="leg-scrape" style="flex-direction:column;gap:10px"></div>
+      </div>
+    </section>
+
+    <!-- G4 NACE -->
+    <section class="panel col-7">
+      <div class="p-head"><div class="p-title">Hôtels ciblés par code NACE — division 55 « Hébergement »</div><div class="p-unit">matching préfixe ^55</div></div>
+      <p class="p-sub">Sélection des activités <span class="mono">Classification=MAIN</span> dans la division hébergement.</p>
+      <div class="hbars" id="nace"></div>
+    </section>
+
+    <!-- G5 region -->
+    <section class="panel col-5">
+      <div class="p-head"><div class="p-title">Répartition régionale</div><div class="p-unit">schématique</div></div>
+      <p class="p-sub">Hôtels ciblés par région belge (siège social).</p>
+      <div class="bemap" id="bemap"></div>
+    </section>
+
+    <!-- G6 years -->
+    <section class="panel col-5">
+      <div class="p-head"><div class="p-title">Dépôts NBB par exercice</div><div class="p-unit">CSV ≥ 2021</div></div>
+      <p class="p-sub">Comptes annuels récupérés (<span class="mono">periodEndDateYear</span>).</p>
+      <div class="vbars" id="years"></div>
+    </section>
+
+    <!-- G8 forms -->
+    <section class="panel col-7">
+      <div class="p-head"><div class="p-title">Formes juridiques des hôtels ciblés</div><div class="p-unit">après exclusions</div></div>
+      <p class="p-sub">Filtre <span class="mono">JuridicalForm ∉ EXCLUDED_FORMS</span> — 26 formes écartées (ASBL, fondations, formes publiques).</p>
+      <div class="hbars" id="forms"></div>
+    </section>
+
+    <!-- G9 table -->
+    <section class="panel col-12">
+      <div class="p-head"><div class="p-title">Derniers dépôts NBB ingérés</div><div class="p-unit">Bronze HDFS · /&lt;bce&gt;/nbb/&lt;year&gt;/&lt;ref&gt;.csv</div></div>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr>
+            <th>BCE</th><th>Dénomination</th><th>Exercice</th><th>Réf. dépôt</th><th>Source</th><th>Chemin HDFS</th><th>Statut</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- pipeline -->
+  <section class="pipeline">
+    <div class="p-title">Architecture medallion — pipeline idempotent</div>
+    <p class="p-sub">~1,95 M d'entreprises balayées par lots de 200 (rafraîchissement 30 j) · delta-detection via State DB · rate-limiting poli.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="snum">1</div>
+        <h5>Seed</h5>
+        <p><code>enterprise.csv</code> (KBO Open Data) → collection Mongo <code>companies</code>, <code>_id</code> = BCE 10 chiffres, upsert idempotent.</p>
+        <div class="tags"><span class="t">KBO Open Data</span><span class="t">MongoDB</span></div>
+      </div>
+      <div class="step">
+        <div class="snum">2</div>
+        <h5>Bronze</h5>
+        <p>DAG <code>bce_bronze_ingestion</code> : scraping 3 portails → octets bruts sur <code>hdfs:///bronze</code>. Delta via <code>file_state</code> (clé <code>source·bce·kind·ref</code>).</p>
+        <div class="tags"><span class="t">NBB/CBSO</span><span class="t">notaire · F5</span><span class="t">eJustice</span></div>
+      </div>
+      <div class="step">
+        <div class="snum">3</div>
+        <h5>Silver</h5>
+        <p>DAG <code>bce_silver</code> : <code>enterprise_finale</code> → <code>enterprise_silver</code> (dates ISO, dénom. FR, adresse siège, NACE dédupliqués, <code>is_hospitality</code>).</p>
+        <div class="tags"><span class="t">nettoyage</span><span class="t">is_hospitality = ^55</span></div>
+      </div>
+      <div class="step">
+        <div class="snum">4</div>
+        <h5>Ciblage + Scraping NBB</h5>
+        <p>DAG <code>bce_hotel_nbb</code> : sélection hôtels (<code>AC · type 2 · MAIN ^55</code>) → <code>scrape_state</code>, puis CSV comptes annuels ≥ 2021, double idempotence.</p>
+        <div class="tags"><span class="t">pending→in_progress→done</span></div>
+      </div>
+    </div>
+    <div class="foot-note">
+      <span class="kv">Rate-limiting :</span> NBB <b>0,6 s</b> · eJustice <b>0,4 s</b> · notaire <b>0,3 s</b> · <b>5</b> retries (backoff 429/5xx)
+      &nbsp;•&nbsp; <span class="kv">KPI financiers (aval) :</span> CA=<b>70</b> · EBIT=<b>9901</b> · Rés. net=<b>9904</b> · Fonds propres=<b>10/15</b> · Total actif=<b>20/58</b>
+    </div>
+  </section>
+
+  <footer class="pg">Dashboard généré à partir de la cartographie du repo <span class="mono">ingestion-bronze</span> · données représentatives, non issues d'une exécution réelle.</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var nf = new Intl.NumberFormat('fr-BE');
+  var pf = function(x){ return (Math.round(x*10)/10).toString().replace('.',',')+' %'; };
+
+  /* ---------------- DATA ---------------- */
+  var KPI = [
+    {label:"Entreprises référencées", val:1950000, unit:"companies · seed KBO", accent:"var(--gold)"},
+    {label:"Documents Bronze ingérés", val:847300, unit:"fichiers PDF/CSV sur HDFS", accent:"var(--nbb)"},
+    {label:"Hôtels ciblés (NACE 55)", val:11842, unit:"établissements <b>is_hospitality</b>", accent:"var(--gold)"},
+    {label:"Hôtels scrapés (done)", val:9260, unit:"<b>78,2 %</b> du ciblage", accent:"var(--done)"},
+    {label:"Dépôts NBB ≥ 2021", val:24180, unit:"comptes annuels CSV", accent:"var(--nbb)"},
+    {label:"Taux d'erreur ingestion", val:"2,7 %", raw:true, unit:"fichiers en statut <b>error</b>", accent:"var(--error)"}
+  ];
+
+  var FUNNEL_A = [
+    {name:"Seed companies (KBO)", val:1950000, color:"#6C7686"},
+    {name:"Actives (Status = AC)", val:1062000, color:"#586173"},
+    {name:"Silver enrichi", val:1950000, color:"#8B94A3"}
+  ];
+  var FUNNEL_B = [
+    {name:"Hébergement (is_hospitality ^55)", val:14930, color:"var(--gold)"},
+    {name:"Éligibles (AC·type 2·forme·MAIN 55)", val:11842, color:"var(--gold-deep)"},
+    {name:"Chargées « pending »", val:11842, color:"#B98A3C"},
+    {name:"Scrapées « done »", val:9260, color:"var(--done)"}
+  ];
+
+  var SOURCES = [
+    {label:"NBB / CBSO", key:"nbb", val:512400, color:"var(--nbb)"},
+    {label:"eJustice", key:"ejustice", val:268900, color:"var(--ejustice)"},
+    {label:"Notaire", key:"notaire", val:66000, color:"var(--notaire)"}
+  ];
+
+  var STATUS = [ // per source: done / pending / error
+    {src:"nbb", color:"var(--nbb)", done:512400, pending:18700, error:14100},
+    {src:"notaire", color:"var(--notaire)", done:66000, pending:4200, error:9800},
+    {src:"ejustice", color:"var(--ejustice)", done:268900, pending:12500, error:1900}
+  ];
+
+  var SCRAPE = [
+    {label:"done", val:9260, color:"var(--done)"},
+    {label:"pending", val:1980, color:"var(--pending)"},
+    {label:"in_progress", val:602, color:"var(--progress)"}
+  ];
+
+  var NACE = [
+    {code:"55100", lbl:"Hôtels et hébergement similaire", val:6820},
+    {code:"55201", lbl:"Hébergement touristique court séjour", val:1740},
+    {code:"55203", lbl:"Gîtes / meublés de vacances", val:1310},
+    {code:"55202", lbl:"Chambres d'hôtes", val:980},
+    {code:"55300", lbl:"Terrains de camping & caravanes", val:520},
+    {code:"55900", lbl:"Autres hébergements", val:258},
+    {code:"55400", lbl:"Auberges de jeunesse & refuges", val:214}
+  ];
+
+  var REGIONS = [
+    {name:"Flandre", val:6870, pct:58, color:"#8A621B"},
+    {name:"Wallonie", val:3080, pct:26, color:"#B0812C"},
+    {name:"Bruxelles-Cap.", val:1892, pct:16, color:"#D8B563"}
+  ];
+
+  var YEARS = [
+    {y:"2021", val:4120},{y:"2022", val:5380},{y:"2023", val:6240},{y:"2024", val:6910},{y:"2025", val:1530}
+  ];
+
+  var FORMS = [
+    {code:"610", lbl:"SRL (BV)", val:5420},
+    {code:"014", lbl:"SA (NV)", val:2180},
+    {code:"706", lbl:"Entreprise individuelle", val:1760},
+    {code:"612", lbl:"SComm / SNC", val:980},
+    {code:"611", lbl:"Société simple", val:720},
+    {code:"—", lbl:"Autres formes admises", val:782}
+  ];
+
+  var DEPOSITS = [
+    ["0878065378","GOOGLE BELGIUM SRL","2024","REF-2024-0091","nbb","hdfs:///bronze/0878065378/nbb/2024/REF-2024-0091.csv","done"],
+    ["0203430576","SNCB SA","2023","REF-2023-4417","nbb","hdfs:///bronze/0203430576/nbb/2023/REF-2023-4417.csv","done"],
+    ["0456221109","HOTEL DES ARDENNES SRL","2024","REF-2024-1180","nbb","hdfs:///bronze/0456221109/nbb/2024/REF-2024-1180.csv","done"],
+    ["0612889034","BRUGGE BEACH HOTEL BV","2025","REF-2025-0042","nbb","—","in_progress"],
+    ["0741556210","CAMPING HAUTE MEUSE SRL","2022","REF-2022-3355","nbb","hdfs:///bronze/0741556210/nbb/2022/REF-2022-3355.csv","done"]
+  ];
+
+  /* ---------------- helpers ---------------- */
+  function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
+  function raf(fn){ requestAnimationFrame(function(){ requestAnimationFrame(fn); }); }
+
+  /* ---------------- KPIs ---------------- */
+  (function(){
+    var host = document.getElementById('kpis');
+    KPI.forEach(function(k){
+      var v = k.raw ? k.val : nf.format(k.val);
+      var e = el('div','kpi');
+      e.style.setProperty('--accent', k.accent);
+      e.innerHTML = '<div class="k-label">'+k.label+'</div>'+
+        '<div class="k-val">'+v+'</div>'+
+        '<div class="k-unit">'+k.unit+'</div>';
+      host.appendChild(e);
+    });
+  })();
+
+  /* ---------------- funnels ---------------- */
+  function renderFunnel(hostId, rows){
+    var host = document.getElementById(hostId);
+    var max = Math.max.apply(null, rows.map(function(r){return r.val;}));
+    var top = rows[0].val;
+    rows.forEach(function(r){
+      var row = el('div','frow');
+      row.innerHTML =
+        '<div class="fl"><span class="name">'+r.name+'</span><span class="num">'+nf.format(r.val)+'</span></div>'+
+        '<div class="ftrack"><div class="fbar" style="background:'+r.color+'"><span class="pct">'+pf(r.val/top*100)+'</span></div></div>';
+      host.appendChild(row);
+      var bar = row.querySelector('.fbar');
+      raf(function(){ bar.style.width = (r.val/max*100)+'%'; });
+    });
+  }
+  renderFunnel('funnel-a', FUNNEL_A);
+  renderFunnel('funnel-b', FUNNEL_B);
+
+  /* ---------------- donut ---------------- */
+  function donut(hostId, legId, data, size, centerCap){
+    var host = document.getElementById(hostId);
+    var total = data.reduce(function(a,b){return a+b.val;},0);
+    var thick = Math.round(size*0.19), r=(size-thick)/2, cx=size/2, cy=size/2;
+    var circ = 2*Math.PI*r;
+    var svg='<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" role="img">';
+    svg+='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="var(--hairline-2)" stroke-width="'+thick+'"/>';
+    var acc=0;
+    data.forEach(function(d,i){
+      var frac=d.val/total, dash=frac*circ;
+      svg+='<circle class="seg" data-i="'+i+'" cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+d.color+'" stroke-width="'+thick+'" '+
+           'stroke-linecap="butt" stroke-dasharray="0 '+circ+'" stroke-dashoffset="'+(-acc)+'" '+
+           'transform="rotate(-90 '+cx+' '+cy+')" data-dash="'+dash+'" data-gap="'+(circ-dash)+'"/>';
+      acc+=dash;
+    });
+    svg+='</svg>';
+    host.innerHTML='<div class="center"><div class="big">'+nf.format(total)+'</div><div class="cap">'+centerCap+'</div></div>'+svg;
+    // animate
+    raf(function(){
+      host.querySelectorAll('.seg').forEach(function(c){
+        c.style.transition='stroke-dasharray .9s cubic-bezier(.2,.7,.2,1)';
+        c.setAttribute('stroke-dasharray', c.getAttribute('data-dash')+' '+c.getAttribute('data-gap'));
+      });
+    });
+    // legend
+    var leg=document.getElementById(legId);
+    data.forEach(function(d){
+      var li=el('div','li');
+      li.innerHTML='<span class="sw" style="background:'+d.color+'"></span><span>'+d.label+'</span>'+
+        '<span class="val">'+nf.format(d.val)+' · '+pf(d.val/total*100)+'</span>';
+      leg.appendChild(li);
+    });
+  }
+  donut('donut-src','leg-src', SOURCES, 148, 'documents');
+  donut('donut-scrape','leg-scrape', SCRAPE, 148, 'hôtels');
+
+  /* ---------------- status stacked ---------------- */
+  (function(){
+    var host=document.getElementById('sstack');
+    STATUS.forEach(function(s){
+      var tot=s.done+s.pending+s.error;
+      var segs=[
+        {k:'done',v:s.done,c:'var(--done)'},
+        {k:'pending',v:s.pending,c:'var(--pending)'},
+        {k:'error',v:s.error,c:'var(--error)'}
+      ];
+      var barHtml=segs.map(function(g){
+        var w=g.v/tot*100;
+        var show=w>7?pf(w):'';
+        return '<div class="seg" style="width:0;background:'+g.c+'" data-w="'+w+'">'+show+'</div>';
+      }).join('');
+      var e=el('div','ss');
+      e.innerHTML='<div class="sh"><span class="src"><span class="sw" style="background:'+s.color+'"></span>'+s.src+'</span>'+
+        '<span class="tot">'+nf.format(tot)+' fichiers</span></div>'+
+        '<div class="strack">'+barHtml+'</div>'+
+        '<div class="errline">erreurs : <b>'+nf.format(s.error)+'</b> ('+pf(s.error/tot*100)+')</div>';
+      host.appendChild(e);
+      raf(function(){ e.querySelectorAll('.seg').forEach(function(sg){ sg.style.width=sg.getAttribute('data-w')+'%'; }); });
+    });
+    var leg=document.getElementById('leg-status');
+    [['done','var(--done)'],['pending','var(--pending)'],['error','var(--error)']].forEach(function(p){
+      var li=el('div','li'); li.innerHTML='<span class="sw" style="background:'+p[1]+'"></span>'+p[0]; leg.appendChild(li);
+    });
+  })();
+
+  /* ---------------- horizontal bars (NACE / forms) ---------------- */
+  function hbars(hostId, data, color){
+    var host=document.getElementById(hostId);
+    var max=Math.max.apply(null,data.map(function(d){return d.val;}));
+    data.forEach(function(d){
+      var e=el('div','hbar');
+      e.innerHTML='<div class="hl"><span style="display:flex;gap:8px;min-width:0"><span class="code">'+d.code+'</span>'+
+        '<span class="lbl">'+d.lbl+'</span></span><span class="num">'+nf.format(d.val)+'</span></div>'+
+        '<div class="htrack"><div class="hfill" style="background:'+color+'"></div></div>';
+      host.appendChild(e);
+      var f=e.querySelector('.hfill');
+      raf(function(){ f.style.width=(d.val/max*100)+'%'; });
+    });
+  }
+  hbars('nace', NACE, 'linear-gradient(90deg,var(--gold),var(--gold-deep))');
+  hbars('forms', FORMS, 'linear-gradient(90deg,#7E8798,#586173)');
+
+  /* ---------------- years vertical ---------------- */
+  (function(){
+    var host=document.getElementById('years');
+    var max=Math.max.apply(null,YEARS.map(function(d){return d.val;}));
+    YEARS.forEach(function(d){
+      var e=el('div','vb');
+      var partial = d.y==='2025';
+      e.innerHTML='<span class="vnum">'+nf.format(d.val)+'</span>'+
+        '<div class="col" data-h="'+(d.val/max*100)+'"'+(partial?' style="background:linear-gradient(180deg,#9FB4CE,#7d94b1)" title="exercices partiellement déposés"':'')+'></div>'+
+        '<span class="vx">'+d.y+'</span>';
+      host.appendChild(e);
+      var col=e.querySelector('.col');
+      raf(function(){ col.style.height=col.getAttribute('data-h')+'%'; });
+    });
+  })();
+
+  /* ---------------- Belgium schematic ---------------- */
+  (function(){
+    var host=document.getElementById('bemap');
+    var fl=REGIONS[0].color, wa=REGIONS[1].color, bx=REGIONS[2].color;
+    // stylised 3-region silhouette (schematic, not geographically exact)
+    var svg=''+
+    '<svg width="190" height="150" viewBox="0 0 190 150" role="img" aria-label="Carte schématique des régions belges">'+
+      '<title>Régions belges (schématique)</title>'+
+      // Flanders (north band)
+      '<path d="M14,40 L60,20 L120,16 L176,38 L170,60 L120,66 L60,64 L18,62 Z" fill="'+fl+'" stroke="#fff" stroke-width="2"/>'+
+      // Wallonia (south)
+      '<path d="M18,62 L60,64 L120,66 L170,60 L178,96 L150,132 L96,140 L44,128 L16,96 Z" fill="'+wa+'" stroke="#fff" stroke-width="2"/>'+
+      // Brussels enclave
+      '<circle cx="92" cy="60" r="10" fill="'+bx+'" stroke="#fff" stroke-width="2.5"/>'+
+      '<text x="95" y="40" fill="#fff" font-size="10" font-family="var(--sans)" font-weight="600" text-anchor="middle" opacity=".92">VL</text>'+
+      '<text x="96" y="108" fill="#fff" font-size="10" font-family="var(--sans)" font-weight="600" text-anchor="middle" opacity=".92">WAL</text>'+
+    '</svg>';
+    var labs='<div class="region-lab">';
+    REGIONS.forEach(function(r){
+      labs+='<div class="rl"><span class="sw" style="background:'+r.color+'"></span>'+
+        '<span class="rn">'+r.name+'</span>'+
+        '<span style="text-align:right"><span class="rv">'+nf.format(r.val)+'</span> <span class="rp">'+r.pct+' %</span></span></div>';
+    });
+    labs+='</div>';
+    host.innerHTML=svg+labs;
+  })();
+
+  /* ---------------- table ---------------- */
+  (function(){
+    var tb=document.getElementById('tbody');
+    DEPOSITS.forEach(function(row){
+      var tr=el('tr');
+      var st=row[6];
+      tr.innerHTML=
+        '<td class="mono">'+row[0]+'</td>'+
+        '<td>'+row[1]+'</td>'+
+        '<td class="mono">'+row[2]+'</td>'+
+        '<td class="mono">'+row[3]+'</td>'+
+        '<td class="mono" style="color:var(--nbb)">'+row[4]+'</td>'+
+        '<td class="path mono" title="'+row[5]+'">'+row[5]+'</td>'+
+        '<td><span class="pill '+st+'">'+st+'</span></td>';
+      tb.appendChild(tr);
+    });
+  })();
+})();
+</script>
+</body>
+</html>

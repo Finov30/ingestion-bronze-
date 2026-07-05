@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explorateur d'entreprises BCE</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body data-mode="{{ mode }}">
+
+<header>
+  <div class="wrap head-row">
+    <div class="brand">
+      <div class="seal">BCE</div>
+      <div>
+        <h1>Explorateur d'entreprises</h1>
+        <p class="sub">Recherche &amp; documents liés · NBB/CBSO · notaire.be · eJustice</p>
+      </div>
+    </div>
+    <div class="head-meta">
+      <span class="chip" id="mode-chip"><span class="dot" id="mode-dot"></span><span id="mode-txt">…</span></span>
+      <span class="chip mono" id="stat-companies">— entreprises</span>
+      <span class="chip mono" id="stat-docs">— documents</span>
+      <a class="btn-dash" href="/dashboard" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 13h6V3H3zM15 21h6V11h-6zM15 7h6V3h-6zM3 21h6v-4H3z"/></svg>
+        Dashboard
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap searchbar">
+  <div class="search-field">
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M21 21l-4.3-4.3M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+    <input id="q" type="search" autocomplete="off" placeholder="Rechercher par n° BCE (0203.430.576) ou dénomination…" aria-label="Recherche d'entreprise">
+  </div>
+  <div class="seg" role="tablist" aria-label="Filtre secteur">
+    <button class="seg-btn is-on" data-sector="all" role="tab" aria-selected="true">Toutes</button>
+    <button class="seg-btn" data-sector="hotel" role="tab" aria-selected="false">Hôtellerie ^55</button>
+  </div>
+</div>
+
+<div class="wrap layout">
+  <!-- résultats -->
+  <aside class="results" aria-label="Résultats">
+    <div class="results-head"><span id="results-count">—</span></div>
+    <div id="results-list"></div>
+  </aside>
+
+  <!-- détail entreprise -->
+  <main class="detail" id="detail">
+    <div class="empty" id="empty">
+      <div class="empty-ic">🏢</div>
+      <h2>Sélectionnez une entreprise</h2>
+      <p>Lancez une recherche à gauche, puis cliquez sur une fiche pour voir ses
+      documents Bronze (comptes annuels NBB, statuts notariés, publications eJustice)
+      et les KPI financiers.</p>
+    </div>
+  </main>
+</div>
+
+<!-- visionneuse de document -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title" id="modal-title">Document</div>
+        <div class="modal-sub mono" id="modal-sub"></div>
+      </div>
+      <div class="modal-actions">
+        <a class="btn ghost" id="modal-open" href="#" target="_blank" rel="noopener">Ouvrir ↗</a>
+        <button class="btn" data-close aria-label="Fermer">Fermer</button>
+      </div>
+    </div>
+    <iframe id="modal-frame" title="Aperçu du document" sandbox="allow-popups"></iframe>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
