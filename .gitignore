@@ -6,3 +6,7 @@ notaire_cookies.json
 tmp/
 *.log
 .DS_Store
+
+# Couche Bronze locale (données réelles scrapées, régénérables via scripts/)
+bronze_local/
+kbo/

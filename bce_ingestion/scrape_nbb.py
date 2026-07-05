@@ -31,6 +31,7 @@ from __future__ import annotations
 from . import config
 from . import state_db
 from .hdfs_io import HdfsIO
+from .kpi import financials_from_codes
 from .sources import consult_nbb
 
 
@@ -97,8 +98,16 @@ def scrape_company_filings(
         try:
             text = consult_nbb.fetch_csv_text(session, dep_id)
             path = hdfs.put_bytes(text.encode("utf-8"), rel)
+            # KPIs financiers réels calculés depuis les codes comptables et
+            # stockés dans file_state (affichés tels quels par l'explorateur).
+            financials = None
+            try:
+                financials = financials_from_codes(consult_nbb.parse_csv(text), year)
+            except Exception:  # noqa: BLE001 — CSV atypique : doc sans KPI, pas d'échec
+                financials = None
             state_db.mark_done(
-                db, SOURCE, bce, KIND, ref, path, year=year, reference=ref
+                db, SOURCE, bce, KIND, ref, path,
+                year=year, reference=ref, financials=financials,
             )
             done += 1
         except Exception as exc:  # noqa: BLE001 — une erreur ne stoppe pas le lot
